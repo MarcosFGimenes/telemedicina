@@ -14,6 +14,11 @@ export type CheckoutRequestBody = {
   address?: string;
   city?: string;
   state?: string;
+  birthday?: string;
+  paymentType?: string;
+  serviceType?: string;
+  holder?: string;
+  general?: string;
   creditCard?: {
     holderName: string;
     number: string;

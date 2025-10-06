@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { asaas } from '@/lib/asaas';
 import { db } from '@/lib/firebaseAdmin';
+import { digitsOnly } from '@/lib/beneficiaryPayload';
 import {
   type AsaasPayment,
   type AsaasPixQrCode,
@@ -25,6 +26,16 @@ const formatDate = (value?: string) => {
 };
 
 async function resolveCustomer(body: CheckoutRequestBody, cpfDigits: string) {
+  const normalizedBirthday = body.birthday?.trim() || null;
+  const paymentTypeFromRequest = body.paymentType?.trim().toUpperCase();
+  const serviceTypeFromRequest = body.serviceType?.trim().toUpperCase();
+  const normalizedPaymentType = paymentTypeFromRequest || 'S';
+  const normalizedServiceType = serviceTypeFromRequest || 'GS';
+  const normalizedHolder = digitsOnly(body.holder) || null;
+  const normalizedGeneral = body.general?.trim() || null;
+  const normalizedPhone = body.mobilePhone ? digitsOnly(body.mobilePhone) || body.mobilePhone : null;
+  const normalizedZip = body.zipCode ? digitsOnly(body.zipCode) || body.zipCode : null;
+
   const snapshot = await db.collection('users').where('cpf', '==', cpfDigits).limit(1).get();
 
   if (!snapshot.empty) {
@@ -32,19 +43,66 @@ async function resolveCustomer(body: CheckoutRequestBody, cpfDigits: string) {
     const data = doc.data();
     let customerId: string | undefined = data.asaasCustomerId;
 
+    const updates: Record<string, unknown> = {};
+
     if (!customerId) {
       const { data: createdCustomer } = await asaas.post('/customers', {
         name: body.name,
         cpfCnpj: cpfDigits,
         email: body.email,
-        mobilePhone: body.mobilePhone,
-        postalCode: body.zipCode,
+        mobilePhone: normalizedPhone ?? body.mobilePhone,
+        postalCode: normalizedZip ?? body.zipCode,
         address: body.address,
         city: body.city,
         state: body.state,
       });
       customerId = createdCustomer.id;
       await doc.ref.update({ asaasCustomerId: customerId, updatedAt: new Date() });
+    }
+
+    const assignIfChanged = (key: string, value: unknown) => {
+      if (value == null || value === '') {
+        return;
+      }
+
+      if (data[key] !== value) {
+        updates[key] = value;
+      }
+    };
+
+    assignIfChanged('name', body.name);
+    assignIfChanged('email', body.email ?? null);
+    assignIfChanged('phone', normalizedPhone ?? null);
+    assignIfChanged('zipCode', normalizedZip ?? null);
+    assignIfChanged('address', body.address ?? null);
+    assignIfChanged('city', body.city ?? null);
+    assignIfChanged('state', body.state ?? null);
+    assignIfChanged('birthday', normalizedBirthday);
+
+    if (paymentTypeFromRequest) {
+      assignIfChanged('paymentType', normalizedPaymentType);
+    }
+
+    if (serviceTypeFromRequest) {
+      assignIfChanged('serviceType', normalizedServiceType);
+    }
+
+    if (normalizedHolder) {
+      assignIfChanged('holder', normalizedHolder);
+    } else if (!data.holder) {
+      const fallbackHolder = digitsOnly(body.cpf);
+      if (fallbackHolder) {
+        assignIfChanged('holder', fallbackHolder);
+      }
+    }
+
+    if (normalizedGeneral) {
+      assignIfChanged('general', normalizedGeneral);
+    }
+
+    if (Object.keys(updates).length > 0) {
+      updates.updatedAt = new Date();
+      await doc.ref.update(updates);
     }
 
     return { customerId: customerId!, userRef: doc.ref };
@@ -54,8 +112,8 @@ async function resolveCustomer(body: CheckoutRequestBody, cpfDigits: string) {
     name: body.name,
     cpfCnpj: cpfDigits,
     email: body.email,
-    mobilePhone: body.mobilePhone,
-    postalCode: body.zipCode,
+    mobilePhone: normalizedPhone ?? body.mobilePhone,
+    postalCode: normalizedZip ?? body.zipCode,
     address: body.address,
     city: body.city,
     state: body.state,
@@ -65,11 +123,16 @@ async function resolveCustomer(body: CheckoutRequestBody, cpfDigits: string) {
     name: body.name,
     cpf: cpfDigits,
     email: body.email || null,
-    phone: body.mobilePhone || null,
-    zipCode: body.zipCode || null,
+    phone: normalizedPhone || null,
+    zipCode: normalizedZip || null,
     address: body.address || null,
     city: body.city || null,
     state: body.state || null,
+    birthday: normalizedBirthday,
+    paymentType: normalizedPaymentType,
+    serviceType: normalizedServiceType,
+    holder: normalizedHolder || digitsOnly(body.cpf) || null,
+    general: normalizedGeneral,
     asaasCustomerId: createdCustomer.id,
     status: 'pending',
     beneficiaryUuid: null,

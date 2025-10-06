@@ -3,11 +3,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { asaas } from '@/lib/asaas';
 import { db } from '@/lib/firebaseAdmin';
 import { getAsaasCustomer } from '@/lib/asaasService';
-import {
-  ensureBeneficiaryByCPF,
-  reactivateBeneficiary,
-  type BeneficiaryInput,
-} from '@/lib/rapidocService';
+import { buildBeneficiaryPayload, type BeneficiaryUserRecord } from '@/lib/beneficiaryPayload';
+import { ensureBeneficiaryByCPF, reactivateBeneficiary } from '@/lib/rapidocService';
 import {
   type FinalizeRequestBody,
   type FinalizeResponseBody,
@@ -183,12 +180,16 @@ export async function POST(request: NextRequest) {
       user = { ...(user ?? {}), ...updates } as Record<string, any>;
     }
 
-    const ensurePayload = resolveEnsurePayload(cpfDigits, user, asaasCustomer);
+    const ensurePayload = buildBeneficiaryPayload({
+      cpf: cpfDigits,
+      user: user as BeneficiaryUserRecord | null,
+      customer: asaasCustomer,
+    });
     const ensured = await ensureBeneficiaryByCPF(ensurePayload);
 
     if (ensured?.uuid) {
       try {
-        await reactivateBeneficiary(ensured.uuid);
+        await reactivateBeneficiary(ensured.uuid, ensurePayload);
       } catch (error) {
         if (axios.isAxiosError(error)) {
           const statusCode = error.response?.status ?? 502;

@@ -28,8 +28,11 @@ export async function createBeneficiaryOne(payload: BeneficiaryInput) {
   return { raw: data, uuid };
 }
 
-export async function reactivateBeneficiary(beneficiaryId: string) {
-  const response = await rapidoc.put(`/beneficiaries/${beneficiaryId}/reactivate`, {});
+export async function reactivateBeneficiary(
+  beneficiaryId: string,
+  payload: BeneficiaryInput,
+) {
+  const response = await rapidoc.put(`/beneficiaries/${beneficiaryId}/reactivate`, payload);
   return response.data;
 }
 
