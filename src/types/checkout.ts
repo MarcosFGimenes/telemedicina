@@ -1,4 +1,13 @@
-﻿export type BillingType = 'BOLETO' | 'CREDIT_CARD' | 'UNDEFINED' | 'PIX';
+/**
+ * Testes (Postman):
+ * 1. Criar pagamento no Asaas e obter o paymentId.
+ * 2. Confirmar pagamento no sandbox (RECEIVED/CONFIRMED).
+ * 3. GET /api/checkout/status/{paymentId} valida status.
+ * 4. POST /api/checkout/finalizar com { paymentId, cpf }.
+ * 5. GET /api/rapidoc/beneficiaries/cpf/{cpf} confirma beneficiário.
+ */
+
+export type BillingType = 'BOLETO' | 'CREDIT_CARD' | 'UNDEFINED' | 'PIX';
 
 export type CheckoutRequestBody = {
   billingType: BillingType;
@@ -73,8 +82,8 @@ export type StatusResponse = {
 };
 
 export type FinalizeRequestBody = {
-  cpf: string;
-  paymentId: string;
+  cpf?: string;
+  paymentId?: string;
 };
 
 export type FinalizeResponseBody = {
@@ -83,7 +92,7 @@ export type FinalizeResponseBody = {
     uuid: string;
     created: boolean;
   } | null;
-  status: string;
+  status?: string;
 };
 
 export const PAYMENT_SUCCESS_STATUSES = ['RECEIVED', 'CONFIRMED'] as const;

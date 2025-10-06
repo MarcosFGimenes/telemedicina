@@ -1,7 +1,20 @@
-import { NextResponse } from "next/server";
+/**
+ * Testes (Postman):
+ * 1. Criar beneficiário via checkout finalizado.
+ * 2. GET /api/rapidoc/beneficiaries/{beneficiaryId}/consults (placeholder) retorna mensagem.
+ * 3. Ajustar conforme necessidade futura.
+ * 4. Verificar logs para confirmar params resolvidos.
+ * 5. --
+ */
+
+import { NextRequest, NextResponse } from 'next/server';
 
 type Params = { beneficiaryId: string };
 
-export async function GET(request: Request, context: { params: Params }) {
-  return NextResponse.json({ message: "Listar consultas nao implementado", beneficiaryId: context.params.beneficiaryId });
+export async function GET(_request: NextRequest, ctx: { params: Promise<Params> }) {
+  const { beneficiaryId } = await ctx.params;
+  return NextResponse.json({
+    message: 'Listar consultas nao implementado',
+    beneficiaryId,
+  });
 }
