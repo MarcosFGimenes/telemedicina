@@ -1,4 +1,13 @@
-﻿'use client';
+/**
+ * Testes (Postman):
+ * 1. Criar pagamento no Asaas e obter o paymentId.
+ * 2. Confirmar pagamento no sandbox (RECEIVED/CONFIRMED).
+ * 3. GET /api/checkout/status/{paymentId} para acompanhar.
+ * 4. POST /api/checkout/finalizar com { paymentId, cpf } pelo botão.
+ * 5. GET /api/rapidoc/beneficiaries/cpf/{cpf} confirma o beneficiário.
+ */
+
+'use client';
 
 import axios from 'axios';
 import { useEffect, useMemo, useState } from 'react';
@@ -71,24 +80,33 @@ const getDefaultDueDate = () => {
   return formatDateInput(date.toISOString());
 };
 
+const asRecord = (value: unknown) => (typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : null);
+const asString = (value: unknown) => (typeof value === 'string' ? value : undefined);
+const firstRecord = (value: unknown) =>
+  Array.isArray(value) && value.length > 0 && typeof value[0] === 'object' && value[0] !== null
+    ? (value[0] as Record<string, unknown>)
+    : null;
+
 const extractErrorMessage = (error: unknown): string => {
   if (!axios.isAxiosError(error)) {
     return error instanceof Error ? error.message : 'Erro inesperado';
   }
 
-  const data = error.response?.data as any;
+  const data = asRecord(error.response?.data);
+  const hint = asString(data?.hint);
+  const errorsRecord = firstRecord(data?.errors);
+  const nestedError = asRecord(data?.error);
+  const nestedErrorsRecord = firstRecord(nestedError?.errors);
   const description =
-    data?.errors?.[0]?.description ||
-    data?.error?.errors?.[0]?.description ||
-    data?.error?.message ||
-    data?.error?.description ||
-    data?.error;
+    asString(data?.message) ||
+    asString(errorsRecord?.description) ||
+    asString(nestedErrorsRecord?.description) ||
+    asString(nestedError?.message) ||
+    asString(nestedError?.description) ||
+    asString(data?.error);
 
-  if (typeof description === 'string') {
-    return description;
-  }
-
-  return error.message ?? 'Erro ao processar requisição';
+  const message = typeof description === 'string' ? description : error.message ?? 'Erro ao processar requisição';
+  return hint ? `${hint}: ${message}` : message;
 };
 
 const PAYMENT_TYPE_OPTIONS = [
@@ -405,6 +423,7 @@ export default function PagarPage() {
 
     setError('');
     setSuccess('');
+    setInfoMessage('');
     setFinalizing(true);
 
     try {
@@ -414,17 +433,33 @@ export default function PagarPage() {
       });
 
       if (data.ok) {
-        setSuccess('Beneficiário ativo com sucesso!');
-        setInfoMessage('Rapidoc sincronizado.');
-        setStatus(data.status);
+        const created = Boolean(data.ensured?.created);
+        const uuid = data.ensured?.uuid ?? 'desconhecido';
+        setSuccess(
+          created
+            ? `Beneficiário criado e ativado com sucesso (uuid: ${uuid}).`
+            : `Beneficiário confirmado e reativado (uuid: ${uuid}).`,
+        );
+        setInfoMessage(created ? 'Rapidoc criou um novo registro.' : 'Beneficiário existente reativado.');
+        if (data.status) {
+          setStatus(data.status);
+        }
+        setRawLog(data);
         if (typeof window !== 'undefined') {
           window.localStorage.removeItem(STORAGE_KEY);
         }
       } else {
-        setError('Pagamento ainda não confirmado.');
+        setError(`payment_not_confirmed: Pagamento ainda não confirmado (status: ${data.status ?? 'desconhecido'}).`);
       }
     } catch (err) {
-      setError(extractErrorMessage(err));
+      const message = extractErrorMessage(err);
+      setError(message);
+      if (axios.isAxiosError(err)) {
+        const hint = err.response?.data?.hint as string | undefined;
+        if (hint) {
+          setInfoMessage(`Hint recebido: ${hint}`);
+        }
+      }
     } finally {
       setFinalizing(false);
     }
