@@ -1,4 +1,4 @@
-'use client';
+Ôªø'use client';
 
 import { useEffect, useMemo, useState } from 'react';
 import { copyToClipboard } from '@/utils/clipboard';
@@ -81,12 +81,12 @@ export default function PixViewer({ encodedImage, payload, expirationDate, statu
           className="mx-auto h-56 w-56 rounded-md border"
         />
       ) : (
-        <p className="text-sm text-zinc-500">QR Code n„o retornado.</p>
+        <p className="text-sm text-zinc-500">QR Code n√£o retornado.</p>
       )}
 
       {payload && (
         <div className="space-y-2">
-          <label className="text-sm font-medium">CÛdigo copia e cola</label>
+          <label className="text-sm font-medium">C√≥digo copia e cola</label>
           <textarea
             readOnly
             className="h-24 w-full rounded-md border px-3 py-2 text-xs"
@@ -97,7 +97,7 @@ export default function PixViewer({ encodedImage, payload, expirationDate, statu
             onClick={handleCopy}
             className="rounded-md border border-zinc-300 px-3 py-1 text-sm"
           >
-            {copied ? 'Copiado!' : 'Copiar cÛdigo'}
+            {copied ? 'Copiado!' : 'Copiar c√≥digo'}
           </button>
         </div>
       )}

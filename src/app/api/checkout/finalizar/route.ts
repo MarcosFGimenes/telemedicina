@@ -1,4 +1,4 @@
-import axios from 'axios';
+﻿import axios from 'axios';
 import { NextRequest, NextResponse } from 'next/server';
 import { asaas } from '@/lib/asaas';
 import { db } from '@/lib/firebaseAdmin';

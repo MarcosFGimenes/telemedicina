@@ -1,511 +1,758 @@
-'use client';
+﻿'use client';
 
 import axios from 'axios';
-import { useMemo, useState } from 'react';
-import type {
-  CheckoutRequestBody,
-  CheckoutResponse,
-  StatusResponse,
+import { useEffect, useMemo, useState } from 'react';
+import PaymentMethodSelector from '@/components/PaymentMethodSelector';
+import PixViewer from '@/components/PixViewer';
+import { usePolling } from '@/hooks/usePolling';
+import {
+  type BillingType,
+  type CheckoutRequestBody,
+  type CheckoutResponse,
+  type FinalizeResponseBody,
+  type StatusResponse,
+  PAYMENT_SUCCESS_STATUSES,
 } from '@/types/checkout';
-import { PAYMENT_SUCCESS_STATUSES } from '@/types/checkout';
+import {
+  formatCurrency,
+  formatDateInput,
+  isValidCpf,
+  isValidEmail,
+  onlyDigits,
+  parseCurrencyInput,
+} from '@/utils/format';
 
-type FormState = {
-  customerId: string;
+const STORAGE_KEY = 'checkout:last-payment';
+const SUCCESS_STATUSES = new Set(PAYMENT_SUCCESS_STATUSES);
+const DEFAULT_METHOD: BillingType = 'BOLETO';
+
+type CustomerForm = {
   name: string;
   cpf: string;
-  value: string;
   email: string;
   mobilePhone: string;
   zipCode: string;
   address: string;
   city: string;
   state: string;
-  description: string;
 };
 
-const POLL_INTERVAL_MS = 6000;
-const MAX_ATTEMPTS = 20;
-
-const statusColor = (status?: string) => {
-  switch (status) {
-    case 'CONFIRMED':
-    case 'RECEIVED':
-      return 'bg-green-100 text-green-700';
-    case 'OVERDUE':
-    case 'CANCELLED':
-      return 'bg-red-100 text-red-700';
-    case 'PENDING':
-    default:
-      return 'bg-zinc-100 text-zinc-700';
-  }
+type CardForm = {
+  holderName: string;
+  number: string;
+  expiryMonth: string;
+  expiryYear: string;
+  ccv: string;
 };
 
-const formatDisplayDate = (value?: string | null) => {
-  if (!value) {
-    return null;
-  }
-
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return value;
-  }
-
-  return parsed.toLocaleString('pt-BR');
+type CardHolderForm = {
+  name: string;
+  email: string;
+  cpfCnpj: string;
+  postalCode: string;
+  addressNumber: string;
+  phone: string;
 };
 
-const successStatuses = new Set(PAYMENT_SUCCESS_STATUSES);
+type StoredPayment = {
+  payment: CheckoutResponse;
+  method: BillingType;
+  cpf: string;
+};
 
-export default function PagarAgoraPage() {
-  const [form, setForm] = useState<FormState>({
-    customerId: '',
+const getDefaultDueDate = () => {
+  const date = new Date();
+  date.setDate(date.getDate() + 2);
+  return formatDateInput(date.toISOString());
+};
+
+const extractErrorMessage = (error: unknown): string => {
+  if (!axios.isAxiosError(error)) {
+    return error instanceof Error ? error.message : 'Erro inesperado';
+  }
+
+  const data = error.response?.data as any;
+  const description =
+    data?.errors?.[0]?.description ||
+    data?.error?.errors?.[0]?.description ||
+    data?.error?.message ||
+    data?.error?.description ||
+    data?.error;
+
+  if (typeof description === 'string') {
+    return description;
+  }
+
+  return error.message ?? 'Erro ao processar requisição';
+};
+
+export default function PagarPage() {
+  const [customer, setCustomer] = useState<CustomerForm>({
     name: '',
     cpf: '',
-    value: '',
     email: '',
     mobilePhone: '',
     zipCode: '',
     address: '',
     city: '',
     state: '',
-    description: '',
+  });
+  const [method, setMethod] = useState<BillingType>(DEFAULT_METHOD);
+  const [pixAvailable, setPixAvailable] = useState(true);
+  const [amount, setAmount] = useState('49.90');
+  const [dueDate, setDueDate] = useState(getDefaultDueDate);
+  const [card, setCard] = useState<CardForm>({
+    holderName: '',
+    number: '',
+    expiryMonth: '',
+    expiryYear: '',
+    ccv: '',
+  });
+  const [cardHolder, setCardHolder] = useState<CardHolderForm>({
+    name: '',
+    email: '',
+    cpfCnpj: '',
+    postalCode: '',
+    addressNumber: '',
+    phone: '',
   });
 
-  const [loading, setLoading] = useState(false);
   const [payment, setPayment] = useState<CheckoutResponse | null>(null);
-  const [status, setStatus] = useState<string>('');
-  const [polling, setPolling] = useState(false);
-  const [pollAttempts, setPollAttempts] = useState(0);
+  const [status, setStatus] = useState('');
+  const [statusAttempts, setStatusAttempts] = useState(0);
+  const [rawLog, setRawLog] = useState<unknown>(null);
   const [error, setError] = useState('');
-  const [copySuccess, setCopySuccess] = useState('');
-  const [successMessage, setSuccessMessage] = useState('');
+  const [infoMessage, setInfoMessage] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [finalizing, setFinalizing] = useState(false);
+  const [success, setSuccess] = useState('');
+  const [showLog, setShowLog] = useState(false);
 
-  const expirationDisplay = useMemo(
-    () => formatDisplayDate(payment?.pix?.expirationDate ?? null),
-    [payment?.pix?.expirationDate],
-  );
-
-  const isExpired = useMemo(() => {
-    if (!payment?.pix?.expirationDate) {
-      return false;
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
     }
-    const parsed = new Date(payment.pix.expirationDate);
-    if (Number.isNaN(parsed.getTime())) {
-      return false;
-    }
-    return parsed.getTime() < Date.now();
-  }, [payment?.pix?.expirationDate]);
 
-  const updateForm = (key: keyof FormState, value: string) => {
-    setForm((prev) => ({ ...prev, [key]: value }));
+    const storedRaw = window.localStorage.getItem(STORAGE_KEY);
+    if (!storedRaw) {
+      return;
+    }
+
+    try {
+      const stored = JSON.parse(storedRaw) as StoredPayment;
+      if (stored?.payment?.paymentId) {
+        setPayment(stored.payment);
+        setStatus(stored.payment.status);
+        setMethod(stored.method ?? DEFAULT_METHOD);
+        setCustomer((prev) => ({ ...prev, cpf: stored.cpf }));
+      }
+    } catch (err) {
+      console.error('Failed to parse stored payment', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!payment || typeof window === 'undefined') {
+      return;
+    }
+
+    const payload: StoredPayment = {
+      payment,
+      method,
+      cpf: customer.cpf,
+    };
+
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  }, [payment, method, customer.cpf]);
+
+  const successStatusLabel = useMemo(() =>
+    SUCCESS_STATUSES.has(status as (typeof PAYMENT_SUCCESS_STATUSES)[number])
+      ? 'Pagamento confirmado'
+      : undefined,
+  [status]);
+
+  const { start: startPolling, stop: stopPolling, running: polling, attempts } = usePolling(async () => {
+    if (!payment) {
+      return true;
+    }
+
+    try {
+      const { data } = await axios.get<StatusResponse>(`/api/checkout/status/${payment.paymentId}`);
+      setStatus(data.status);
+      setRawLog(data.raw);
+      if (SUCCESS_STATUSES.has(data.status as (typeof PAYMENT_SUCCESS_STATUSES)[number])) {
+        setInfoMessage('Pagamento confirmado! Você pode finalizar manualmente.');
+        return true;
+      }
+
+      return false;
+    } catch (err) {
+      setError(extractErrorMessage(err));
+      return true;
+    }
+  }, { interval: 6000, maxAttempts: 20 });
+
+  const resetState = () => {
+    stopPolling();
+    setPayment(null);
+    setStatus('');
+    setRawLog(null);
+    setStatusAttempts(0);
+    setInfoMessage('');
+    setSuccess('');
   };
 
-  const buildRequestPayload = (): CheckoutRequestBody | null => {
-    const numericValue = Number(form.value.replace(',', '.'));
+  const handleCustomerChange = (key: keyof CustomerForm, value: string) => {
+    setCustomer((prev) => ({ ...prev, [key]: value }));
+  };
 
-    if (!Number.isFinite(numericValue) || numericValue <= 0) {
-      setError('Informe um valor valido.');
+  const handleCardChange = (key: keyof CardForm, value: string) => {
+    setCard((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const handleCardHolderChange = (key: keyof CardHolderForm, value: string) => {
+    setCardHolder((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const buildPayload = (): CheckoutRequestBody | null => {
+    const trimmedName = customer.name.trim();
+    if (!trimmedName) {
+      setError('Informe o nome completo.');
       return null;
     }
 
-    const cpfDigits = form.cpf.replace(/\D/g, '');
-    if (!cpfDigits) {
-      setError('Informe o CPF do titular.');
+    if (!isValidCpf(customer.cpf)) {
+      setError('Informe um CPF válido (somente números).');
       return null;
     }
 
-    if (!form.customerId && !form.name.trim()) {
-      setError('Informe o nome para criar o customer no Asaas.');
+    if (customer.email && !isValidEmail(customer.email)) {
+      setError('Informe um e-mail válido.');
+      return null;
+    }
+
+    const parsedValue = parseCurrencyInput(amount);
+    if (!Number.isFinite(parsedValue) || parsedValue <= 0) {
+      setError('Informe um valor válido.');
       return null;
     }
 
     const payload: CheckoutRequestBody = {
-      value: Number(numericValue.toFixed(2)),
-      cpf: cpfDigits,
+      billingType: method,
+      value: Number(parsedValue.toFixed(2)),
+      name: trimmedName,
+      cpf: onlyDigits(customer.cpf),
+      email: customer.email || undefined,
+      mobilePhone: customer.mobilePhone || undefined,
+      zipCode: customer.zipCode || undefined,
+      address: customer.address || undefined,
+      city: customer.city || undefined,
+      state: customer.state || undefined,
+      description: undefined,
     };
 
-    if (form.customerId.trim()) {
-      payload.customerId = form.customerId.trim();
+    if (method === 'BOLETO' || method === 'PIX') {
+      payload.dueDate = dueDate;
     }
 
-    if (form.name.trim()) {
-      payload.name = form.name.trim();
-    }
+    if (method === 'CREDIT_CARD') {
+      const allCardFilled = Object.values(card).every((value) => value.trim());
+      const allHolderFilled = Object.values(cardHolder).every((value) => value.trim());
 
-    if (form.description.trim()) {
-      payload.description = form.description.trim();
-    }
+      if (!allCardFilled || !allHolderFilled) {
+        setError('Preencha todos os campos do cartão e do titular.');
+        return null;
+      }
 
-    if (form.email.trim()) {
-      payload.email = form.email.trim();
-    }
+      payload.creditCard = {
+        holderName: card.holderName.trim(),
+        number: card.number.replace(/\s+/g, ''),
+        expiryMonth: card.expiryMonth.trim(),
+        expiryYear: card.expiryYear.trim(),
+        ccv: card.ccv.trim(),
+      };
 
-    if (form.mobilePhone.trim()) {
-      payload.mobilePhone = form.mobilePhone.trim();
-    }
-
-    if (form.zipCode.trim()) {
-      payload.zipCode = form.zipCode.trim();
-    }
-
-    if (form.address.trim()) {
-      payload.address = form.address.trim();
-    }
-
-    if (form.city.trim()) {
-      payload.city = form.city.trim();
-    }
-
-    if (form.state.trim()) {
-      payload.state = form.state.trim();
+      payload.creditCardHolderInfo = {
+        name: cardHolder.name.trim(),
+        email: cardHolder.email.trim(),
+        cpfCnpj: onlyDigits(cardHolder.cpfCnpj),
+        postalCode: onlyDigits(cardHolder.postalCode),
+        addressNumber: cardHolder.addressNumber.trim(),
+        phone: onlyDigits(cardHolder.phone),
+      };
     }
 
     return payload;
   };
 
-  const handleSubmit = async () => {
+  const handleGenerate = async () => {
     setError('');
-    setSuccessMessage('');
-    setCopySuccess('');
+    setInfoMessage('');
+    setSuccess('');
+    stopPolling();
 
-    const payload = buildRequestPayload();
+    const payload = buildPayload();
     if (!payload) {
       return;
     }
 
-    setLoading(true);
-    setPolling(false);
-    setPollAttempts(0);
-
     try {
-      const { data } = await axios.post<CheckoutResponse>(
-        '/api/checkout/pagar-agora',
-        payload,
-      );
+      setLoading(true);
+      const { data } = await axios.post<CheckoutResponse>('/api/checkout/pagar', payload);
       setPayment(data);
       setStatus(data.status);
-    } catch (err: any) {
-      const backend = err?.response?.data?.error;
-      setError(backend || err?.message || 'Erro ao criar pagamento');
+      setRawLog(null);
+      setStatusAttempts(0);
+      setInfoMessage('Cobrança criada. Acompanhe o status abaixo.');
+    } catch (err) {
+      const message = extractErrorMessage(err);
+      setError(message);
+
+      if (method === 'PIX' && message.toLowerCase().includes('invalid_billingtype')) {
+        setPixAvailable(false);
+        setMethod('BOLETO');
+      }
     } finally {
       setLoading(false);
     }
   };
 
-  const copyPayload = async () => {
-    if (!payment?.pix?.payload) {
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(payment.pix.payload);
-      setCopySuccess('Codigo copiado!');
-      setTimeout(() => setCopySuccess(''), 2000);
-    } catch (err) {
-      setError('Nao foi possivel copiar automaticamente.');
-    }
-  };
-
-    const pollStatus = async () => {
+  const handleCheckStatus = async () => {
     if (!payment) {
-      setError('Gere um pagamento antes de verificar.');
+      setError('Nenhum pagamento em andamento.');
       return;
     }
 
-    setPolling(true);
-    setPollAttempts(0);
     setError('');
-    setSuccessMessage('');
+    setChecking(true);
 
-    let attempts = 0;
-    let active = true;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-
-    const stop = () => {
-      active = false;
-      setPolling(false);
-      if (timer) {
-        clearTimeout(timer);
+    try {
+      const { data } = await axios.get<StatusResponse>(`/api/checkout/status/${payment.paymentId}`);
+      setStatus(data.status);
+      setRawLog(data.raw);
+      if (SUCCESS_STATUSES.has(data.status as (typeof PAYMENT_SUCCESS_STATUSES)[number])) {
+        setInfoMessage('Pagamento confirmado! Você pode finalizar manualmente.');
       }
-    };
+    } catch (err) {
+      setError(extractErrorMessage(err));
+    } finally {
+      setChecking(false);
+    }
+  };
 
-    const run = async () => {
-      if (!active) {
-        return;
-      }
+  const handleFinalize = async () => {
+    if (!payment) {
+      setError('Nenhum pagamento disponível para finalizar.');
+      return;
+    }
 
-      attempts += 1;
-      setPollAttempts(attempts);
+    setError('');
+    setSuccess('');
+    setFinalizing(true);
 
-      try {
-        const { data } = await axios.get<StatusResponse>(`/api/checkout/status/${payment.paymentId}`);
+    try {
+      const { data } = await axios.post<FinalizeResponseBody>('/api/checkout/finalizar', {
+        cpf: customer.cpf,
+        paymentId: payment.paymentId,
+      });
+
+      if (data.ok) {
+        setSuccess('Beneficiário ativo com sucesso!');
+        setInfoMessage('Rapidoc sincronizado.');
         setStatus(data.status);
-
-        if (successStatuses.has(data.status)) {
-          setSuccessMessage('Pagamento confirmado. O webhook ira ativar o acesso em instantes.');
-          stop();
-          return;
+        if (typeof window !== 'undefined') {
+          window.localStorage.removeItem(STORAGE_KEY);
         }
-
-        if (attempts >= MAX_ATTEMPTS) {
-          stop();
-          return;
-        }
-      } catch (err: any) {
-        const backend = err?.response?.data?.error;
-        setError(backend || err?.message || 'Erro ao verificar status');
-        stop();
-        return;
+      } else {
+        setError('Pagamento ainda não confirmado.');
       }
-
-      timer = setTimeout(run, POLL_INTERVAL_MS);
-    };
-
-    await run();
-
-    return stop;
+    } catch (err) {
+      setError(extractErrorMessage(err));
+    } finally {
+      setFinalizing(false);
+    }
   };
 
-  const resetForNewPayment = () => {
-    setPayment(null);
-    setStatus('');
-    setPolling(false);
-    setPollAttempts(0);
-    setSuccessMessage('');
-    setCopySuccess('');
-    setError('');
-  };
+  const statusBadge = useMemo(() => {
+    if (!status) {
+      return 'Sem status';
+    }
+
+    if (SUCCESS_STATUSES.has(status as (typeof PAYMENT_SUCCESS_STATUSES)[number])) {
+      return `? ${status}`;
+    }
+
+    return status;
+  }, [status]);
 
   return (
-    <div className="space-y-5">
-      <h2 className="text-xl font-semibold">Pagamento rapido via PIX (Sandbox)</h2>
-      <p className="text-sm text-zinc-600">
-        Gere um checkout PIX no Asaas sandbox. O beneficiario sera criado ou reativado automaticamente apos o webhook de confirmacao.
-      </p>
+    <div className="space-y-6">
+      <header className="space-y-1">
+        <h1 className="text-2xl font-semibold">Checkout de teste – Asaas + Rapidoc</h1>
+        <p className="text-sm text-zinc-600">
+          Escolha a forma de pagamento, gere a cobrança e ative o beneficiário manualmente sem aguardar o webhook.
+        </p>
+      </header>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <div className="space-y-3 rounded-lg border bg-white p-4">
-          <div className="grid gap-2">
-            <label className="text-sm font-medium">Customer ID (opcional)</label>
-            <input
-              className="w-full rounded-md border px-3 py-2"
-              placeholder="cus_..."
-              value={form.customerId}
-              onChange={(event) => updateForm('customerId', event.target.value)}
-            />
+      <section className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-3 rounded-lg border bg-white p-4 shadow-sm">
+          <h2 className="text-lg font-semibold">1. Dados do cliente</h2>
+          <p className="text-xs text-zinc-500">Informe os dados básicos do titular usados no Asaas e Rapidoc.</p>
+
+          <div className="grid gap-3">
+            <div className="grid gap-1">
+              <label className="text-sm font-medium">Nome completo</label>
+              <input
+                className="rounded-md border px-3 py-2"
+                placeholder="João da Silva"
+                value={customer.name}
+                onChange={(event) => handleCustomerChange('name', event.target.value)}
+              />
+            </div>
+
+            <div className="grid gap-1">
+              <label className="text-sm font-medium">CPF</label>
+              <input
+                className="rounded-md border px-3 py-2"
+                placeholder="Somente números"
+                value={customer.cpf}
+                onChange={(event) => handleCustomerChange('cpf', onlyDigits(event.target.value))}
+              />
+            </div>
+
+            <div className="grid gap-1">
+              <label className="text-sm font-medium">E-mail</label>
+              <input
+                className="rounded-md border px-3 py-2"
+                placeholder="cliente@exemplo.com"
+                value={customer.email}
+                onChange={(event) => handleCustomerChange('email', event.target.value)}
+              />
+            </div>
+
+            <div className="grid gap-1">
+              <label className="text-sm font-medium">Telefone</label>
+              <input
+                className="rounded-md border px-3 py-2"
+                placeholder="11999999999"
+                value={customer.mobilePhone}
+                onChange={(event) => handleCustomerChange('mobilePhone', onlyDigits(event.target.value))}
+              />
+            </div>
+
+            <div className="grid gap-1">
+              <label className="text-sm font-medium">CEP</label>
+              <input
+                className="rounded-md border px-3 py-2"
+                placeholder="01310930"
+                value={customer.zipCode}
+                onChange={(event) => handleCustomerChange('zipCode', onlyDigits(event.target.value))}
+              />
+            </div>
+
+            <div className="grid gap-1">
+              <label className="text-sm font-medium">Endereço</label>
+              <input
+                className="rounded-md border px-3 py-2"
+                placeholder="Av. Paulista, 1000"
+                value={customer.address}
+                onChange={(event) => handleCustomerChange('address', event.target.value)}
+              />
+            </div>
+
+            <div className="grid gap-1 md:grid-cols-2">
+              <div className="grid gap-1">
+                <label className="text-sm font-medium">Cidade</label>
+                <input
+                  className="rounded-md border px-3 py-2"
+                  placeholder="São Paulo"
+                  value={customer.city}
+                  onChange={(event) => handleCustomerChange('city', event.target.value)}
+                />
+              </div>
+              <div className="grid gap-1">
+                <label className="text-sm font-medium">Estado</label>
+                <input
+                  className="rounded-md border px-3 py-2"
+                  placeholder="SP"
+                  value={customer.state}
+                  onChange={(event) => handleCustomerChange('state', event.target.value)}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-3 rounded-lg border bg-white p-4 shadow-sm">
+          <h2 className="text-lg font-semibold">2. Escolha a forma de pagamento</h2>
+          <PaymentMethodSelector value={method} onChange={setMethod} pixAvailable={pixAvailable} />
+
+          <div className="space-y-3">
+            <div className="grid gap-1">
+              <label className="text-sm font-medium">Valor da cobrança</label>
+              <input
+                className="rounded-md border px-3 py-2"
+                placeholder="49.90"
+                value={amount}
+                onChange={(event) => setAmount(event.target.value)}
+              />
+              <span className="text-xs text-zinc-500">Será enviado ao Asaas como {formatCurrency(parseCurrencyInput(amount))}.</span>
+            </div>
+
+            {(method === 'BOLETO' || method === 'PIX') && (
+              <div className="grid gap-1">
+                <label className="text-sm font-medium">Data de vencimento</label>
+                <input
+                  type="date"
+                  className="rounded-md border px-3 py-2"
+                  value={dueDate}
+                  onChange={(event) => setDueDate(event.target.value)}
+                />
+              </div>
+            )}
+
+            {method === 'CREDIT_CARD' && (
+              <div className="space-y-3 rounded-lg border border-zinc-200 p-3">
+                <h3 className="text-sm font-semibold">Dados do cartão</h3>
+                <div className="grid gap-1">
+                  <label className="text-sm">Nome impresso</label>
+                  <input
+                    className="rounded-md border px-3 py-2"
+                    value={card.holderName}
+                    onChange={(event) => handleCardChange('holderName', event.target.value)}
+                  />
+                </div>
+                <div className="grid gap-1">
+                  <label className="text-sm">Número</label>
+                  <input
+                    className="rounded-md border px-3 py-2"
+                    value={card.number}
+                    onChange={(event) => handleCardChange('number', event.target.value)}
+                  />
+                </div>
+                <div className="grid gap-3 md:grid-cols-3">
+                  <div className="grid gap-1">
+                    <label className="text-sm">Mês</label>
+                    <input
+                      className="rounded-md border px-3 py-2"
+                      placeholder="09"
+                      value={card.expiryMonth}
+                      onChange={(event) => handleCardChange('expiryMonth', event.target.value)}
+                    />
+                  </div>
+                  <div className="grid gap-1">
+                    <label className="text-sm">Ano</label>
+                    <input
+                      className="rounded-md border px-3 py-2"
+                      placeholder="2026"
+                      value={card.expiryYear}
+                      onChange={(event) => handleCardChange('expiryYear', event.target.value)}
+                    />
+                  </div>
+                  <div className="grid gap-1">
+                    <label className="text-sm">CVV</label>
+                    <input
+                      className="rounded-md border px-3 py-2"
+                      placeholder="123"
+                      value={card.ccv}
+                      onChange={(event) => handleCardChange('ccv', event.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <h3 className="pt-2 text-sm font-semibold">Titular do cartão</h3>
+                <div className="grid gap-1">
+                  <label className="text-sm">Nome</label>
+                  <input
+                    className="rounded-md border px-3 py-2"
+                    value={cardHolder.name}
+                    onChange={(event) => handleCardHolderChange('name', event.target.value)}
+                  />
+                </div>
+                <div className="grid gap-1">
+                  <label className="text-sm">E-mail</label>
+                  <input
+                    className="rounded-md border px-3 py-2"
+                    value={cardHolder.email}
+                    onChange={(event) => handleCardHolderChange('email', event.target.value)}
+                  />
+                </div>
+                <div className="grid gap-1">
+                  <label className="text-sm">CPF</label>
+                  <input
+                    className="rounded-md border px-3 py-2"
+                    value={cardHolder.cpfCnpj}
+                    onChange={(event) => handleCardHolderChange('cpfCnpj', onlyDigits(event.target.value))}
+                  />
+                </div>
+                <div className="grid gap-3 md:grid-cols-3">
+                  <div className="grid gap-1">
+                    <label className="text-sm">CEP</label>
+                    <input
+                      className="rounded-md border px-3 py-2"
+                      value={cardHolder.postalCode}
+                      onChange={(event) => handleCardHolderChange('postalCode', onlyDigits(event.target.value))}
+                    />
+                  </div>
+                  <div className="grid gap-1">
+                    <label className="text-sm">Número</label>
+                    <input
+                      className="rounded-md border px-3 py-2"
+                      value={cardHolder.addressNumber}
+                      onChange={(event) => handleCardHolderChange('addressNumber', event.target.value)}
+                    />
+                  </div>
+                  <div className="grid gap-1">
+                    <label className="text-sm">Telefone</label>
+                    <input
+                      className="rounded-md border px-3 py-2"
+                      value={cardHolder.phone}
+                      onChange={(event) => handleCardHolderChange('phone', onlyDigits(event.target.value))}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
-          <div className="grid gap-2">
-            <label className="text-sm font-medium">Nome completo</label>
-            <input
-              className="w-full rounded-md border px-3 py-2"
-              placeholder="Joao da Silva"
-              value={form.name}
-              onChange={(event) => updateForm('name', event.target.value)}
-            />
+          <div className="flex flex-wrap gap-2 pt-2">
+            <button
+              type="button"
+              onClick={handleGenerate}
+              disabled={loading}
+              className="rounded-md bg-zinc-900 px-4 py-2 text-white disabled:opacity-60"
+            >
+              {loading ? 'Processando...' : 'Gerar cobrança'}
+            </button>
+            <button
+              type="button"
+              onClick={resetState}
+              className="rounded-md border border-zinc-300 px-4 py-2 text-sm"
+            >
+              Limpar resultado
+            </button>
           </div>
-
-          <div className="grid gap-2">
-            <label className="text-sm font-medium">CPF</label>
-            <input
-              className="w-full rounded-md border px-3 py-2"
-              placeholder="12345678909"
-              value={form.cpf}
-              onChange={(event) => updateForm('cpf', event.target.value)}
-            />
-          </div>
-
-          <div className="grid gap-2">
-            <label className="text-sm font-medium">Valor (R$)</label>
-            <input
-              className="w-full rounded-md border px-3 py-2"
-              placeholder="49.90"
-              value={form.value}
-              onChange={(event) => updateForm('value', event.target.value)}
-            />
-          </div>
-
-          <div className="grid gap-2">
-            <label className="text-sm font-medium">Descricao (opcional)</label>
-            <input
-              className="w-full rounded-md border px-3 py-2"
-              placeholder="Teste de cobranca"
-              value={form.description}
-              onChange={(event) => updateForm('description', event.target.value)}
-            />
-          </div>
-
-          <div className="grid gap-2">
-            <label className="text-sm font-medium">Email</label>
-            <input
-              className="w-full rounded-md border px-3 py-2"
-              placeholder="cliente@email.com"
-              value={form.email}
-              onChange={(event) => updateForm('email', event.target.value)}
-            />
-          </div>
-
-          <div className="grid gap-2">
-            <label className="text-sm font-medium">Celular</label>
-            <input
-              className="w-full rounded-md border px-3 py-2"
-              placeholder="11999999999"
-              value={form.mobilePhone}
-              onChange={(event) => updateForm('mobilePhone', event.target.value)}
-            />
-          </div>
-
-          <div className="grid gap-2">
-            <label className="text-sm font-medium">CEP</label>
-            <input
-              className="w-full rounded-md border px-3 py-2"
-              placeholder="01310930"
-              value={form.zipCode}
-              onChange={(event) => updateForm('zipCode', event.target.value)}
-            />
-          </div>
-
-          <div className="grid gap-2">
-            <label className="text-sm font-medium">Endereco</label>
-            <input
-              className="w-full rounded-md border px-3 py-2"
-              placeholder="Av. Paulista, 1000"
-              value={form.address}
-              onChange={(event) => updateForm('address', event.target.value)}
-            />
-          </div>
-
-          <div className="grid gap-2">
-            <label className="text-sm font-medium">Cidade</label>
-            <input
-              className="w-full rounded-md border px-3 py-2"
-              placeholder="Sao Paulo"
-              value={form.city}
-              onChange={(event) => updateForm('city', event.target.value)}
-            />
-          </div>
-
-          <div className="grid gap-2">
-            <label className="text-sm font-medium">Estado (UF)</label>
-            <input
-              className="w-full rounded-md border px-3 py-2"
-              placeholder="SP"
-              value={form.state}
-              onChange={(event) => updateForm('state', event.target.value)}
-            />
-          </div>
-
-          <button
-            onClick={handleSubmit}
-            disabled={loading}
-            className="w-full rounded-md bg-zinc-900 px-4 py-2 text-white disabled:opacity-60"
-          >
-            {loading ? 'Gerando...' : 'Gerar pagamento PIX'}
-          </button>
 
           {error && <p className="text-sm text-red-600">{error}</p>}
-          {successMessage && <p className="text-sm text-green-600">{successMessage}</p>}
+          {infoMessage && <p className="text-sm text-blue-600">{infoMessage}</p>}
+          {success && <p className="text-sm text-green-600">{success}</p>}
         </div>
+      </section>
 
-        <div className="space-y-3 rounded-lg border bg-white p-4">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-medium">Status atual</span>
-            <span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusColor(status)}`}>
-              {status || 'Sem status'}
-            </span>
+      <section className="space-y-3 rounded-lg border bg-white p-4 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="text-lg font-semibold">3. Acompanhar cobrança</h2>
+            <p className="text-xs text-zinc-500">Status atual: {statusBadge}</p>
+            {successStatusLabel && <p className="text-xs text-green-600">{successStatusLabel}</p>}
           </div>
-
-          {payment ? (
-            <div className="space-y-3">
-              {payment.pix?.encodedImage ? (
-                <img
-                  src={`data:image/png;base64,${payment.pix.encodedImage}`}
-                  alt="QR Code PIX"
-                  className="mx-auto h-56 w-56 rounded-md border"
-                />
-              ) : (
-                <p className="text-sm text-zinc-500">QR Code nao retornado.</p>
-              )}
-
-              {payment.pix?.payload && (
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Codigo copia e cola</label>
-                  <textarea
-                    readOnly
-                    className="h-24 w-full rounded-md border px-3 py-2 text-xs"
-                    value={payment.pix.payload}
-                  />
-                  <button
-                    onClick={copyPayload}
-                    className="rounded-md border border-zinc-300 px-3 py-1 text-sm"
-                  >
-                    Copiar codigo
-                  </button>
-                  {copySuccess && <span className="text-xs text-green-600">{copySuccess}</span>}
-                </div>
-              )}
-
-              {expirationDisplay && (
-                <p className="text-xs text-zinc-500">QR expira em: {expirationDisplay}</p>
-              )}
-
-              <div className="flex flex-wrap gap-2">
-                <button
-                  onClick={pollStatus}
-                  disabled={polling}
-                  className="rounded-md bg-zinc-900 px-4 py-2 text-sm text-white disabled:opacity-60"
-                >
-                  {polling ? 'Verificando...' : 'Verificar pagamento'}
-                </button>
-                {isExpired && (
-                  <button
-                    onClick={() => {
-                      resetForNewPayment();
-                      handleSubmit();
-                    }}
-                    disabled={loading}
-                    className="rounded-md border border-zinc-300 px-4 py-2 text-sm disabled:opacity-60"
-                  >
-                    Gerar novo QR
-                  </button>
-                )}
-                {!isExpired && (
-                  <button
-                    onClick={resetForNewPayment}
-                    className="rounded-md border border-zinc-300 px-4 py-2 text-sm"
-                  >
-                    Limpar resultado
-                  </button>
-                )}
-              </div>
-
-              {pollAttempts > 0 && (
-                <p className="text-xs text-zinc-500">
-                  Tentativas de consulta: {pollAttempts}/{MAX_ATTEMPTS}
-                </p>
-              )}
-
-              {payment.invoiceUrl && (
-                <a
-                  href={payment.invoiceUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-sm text-blue-600 underline"
-                >
-                  Abrir invoice no Asaas
-                </a>
-              )}
-            </div>
-          ) : (
-            <p className="text-sm text-zinc-500">
-              Gere um QR Code para ver os detalhes aqui. Ambiente sandbox do Asaas.
-            </p>
-          )}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={handleCheckStatus}
+              disabled={!payment || checking}
+              className="rounded-md border border-zinc-300 px-3 py-1 text-sm disabled:opacity-60"
+            >
+              {checking ? 'Consultando...' : 'Verificar status'}
+            </button>
+            <button
+              type="button"
+              onClick={polling ? stopPolling : startPolling}
+              disabled={!payment}
+              className="rounded-md border border-zinc-300 px-3 py-1 text-sm disabled:opacity-60"
+            >
+              {polling ? 'Parar polling' : 'Iniciar polling'}
+            </button>
+            <button
+              type="button"
+              onClick={handleFinalize}
+              disabled={!payment || finalizing || !SUCCESS_STATUSES.has(status as (typeof PAYMENT_SUCCESS_STATUSES)[number])}
+              className="rounded-md bg-emerald-600 px-3 py-1 text-sm text-white disabled:opacity-60"
+            >
+              {finalizing ? 'Finalizando...' : 'Finalizar manualmente'}
+            </button>
+          </div>
         </div>
-      </div>
 
-      <p className="text-xs text-zinc-500">
-        Em producao, prefira webhooks do Asaas para sincronizar status e evitar polling constante.
-      </p>
+        {payment && payment.invoiceUrl && (
+          <a
+            href={payment.invoiceUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center text-sm text-blue-600 underline"
+          >
+            Abrir fatura / checkout
+          </a>
+        )}
+
+        {payment?.pix && (
+          <PixViewer
+            encodedImage={payment.pix?.encodedImage}
+            payload={payment.pix?.payload}
+            expirationDate={payment.pix?.expirationDate}
+            status={status}
+          />
+        )}
+
+        {payment && (
+          <div className="rounded-md border border-dashed border-zinc-300 p-3 text-xs">
+            <p>
+              Payment ID: <span className="font-mono text-sm">{payment.paymentId}</span>
+            </p>
+            <p>
+              Cliente: <span className="font-mono text-sm">{payment.customerId}</span>
+            </p>
+            <p>Status: {status}</p>
+            {attempts > 0 && <p>Polling tentativas: {attempts}</p>}
+            {statusAttempts > 0 && <p>Consultas manuais: {statusAttempts}</p>}
+          </div>
+        )}
+
+        {rawLog && (
+          <div className="space-y-2">
+            <button
+              type="button"
+              onClick={() => setShowLog((prev) => !prev)}
+              className="text-sm text-blue-600 underline"
+            >
+              {showLog ? 'Ocultar log bruto' : 'Exibir log bruto'}
+            </button>
+            {showLog && (
+              <pre className="max-h-72 overflow-auto rounded-md border bg-zinc-950/90 p-3 text-xs text-zinc-100">
+                {JSON.stringify(rawLog, null, 2)}
+              </pre>
+            )}
+          </div>
+        )}
+      </section>
+
+      {!pixAvailable && (
+        <section className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-800">
+          PIX ainda não está habilitado para esta conta sandbox. Utilize boleto, cartão ou checkout Asaas até a liberação.
+        </section>
+      )}
+
+      <section className="rounded-lg border bg-white p-4 shadow-sm">
+        <h2 className="text-lg font-semibold">Como testar</h2>
+        <ol className="mt-2 list-decimal space-y-2 pl-5 text-sm text-zinc-600">
+          <li>
+            Preencha os dados do cliente e selecione o método de pagamento desejado. Informe um valor (ex.: 49.90).
+          </li>
+          <li>
+            Clique em <strong>Gerar cobrança</strong>. Abra a fatura (invoiceUrl) ou use o QR Code PIX conforme o método escolhido.
+          </li>
+          <li>
+            Após concluir o pagamento no ambiente sandbox, use <strong>Verificar status</strong> ou ative o <strong>Polling</strong>.
+          </li>
+          <li>
+            Quando o status estiver como RECEIVED/CONFIRMED, toque em <strong>Finalizar manualmente</strong> para garantir o beneficiário na Rapidoc.
+          </li>
+          <li>
+            Se o PIX ainda não estiver habilitado, utilize boleto, cartão ou checkout Asaas; o alerta acima ficará visível até a aprovação.
+          </li>
+        </ol>
+      </section>
     </div>
   );
 }
-

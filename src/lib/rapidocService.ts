@@ -13,7 +13,7 @@ export type BeneficiaryInput = {
 };
 
 export async function getBeneficiaryByCPF(cpf: string) {
-  const response = await rapidoc.get(`/beneficiaries/cpf/${cpf}`);
+  const response = await rapidoc.get(`/beneficiaries/${cpf}`);
   return response.data;
 }
 

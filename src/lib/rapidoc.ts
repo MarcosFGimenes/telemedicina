@@ -1,16 +1,128 @@
-import axios from 'axios';
+﻿import axios, {
+  AxiosError,
+  AxiosRequestConfig,
+  AxiosResponse,
+} from 'axios';
+
+export const sanitizeCPF = (cpf: string) => cpf.replace(/\D/g, '');
+
+type RapidocRequestMeta = {
+  id: string;
+  start: number;
+  url: string;
+  method: string;
+};
+
+declare module 'axios' {
+  interface AxiosRequestConfig {
+    metadata?: RapidocRequestMeta;
+  }
+}
+
+const MAX_LOG_BODY = 2000;
+let warnedInsecureBaseUrl = false;
+
+const rawBaseURL = (process.env.RAPIDOC_BASE_URL ?? '').trim();
+if (!rawBaseURL) {
+  throw new Error('RAPIDOC_BASE_URL is not defined');
+}
+
+let baseURL = rawBaseURL;
+if (baseURL.startsWith('http://')) {
+  baseURL = baseURL.replace(/^http:\/\//, 'https://');
+  if (!warnedInsecureBaseUrl) {
+    console.warn('[rapidoc] Normalizing RAPIDOC_BASE_URL to https. Original:', rawBaseURL);
+    warnedInsecureBaseUrl = true;
+  }
+}
 
 const rapidoc = axios.create({
-  baseURL: process.env.RAPIDOC_BASE_URL, // ex.: https://sandbox.rapidoc.tech/tema/api
+  baseURL,
   timeout: 20000,
-  // optional: allow logging non-2xx responses without throwing
-  validateStatus: () => true,
 });
 
+const buildUrl = (config: AxiosRequestConfig, fallbackBase: string) => {
+  const url = config.url ?? '';
+  const base = config.baseURL ?? fallbackBase;
+  const target = new URL(url, base);
+  if (config.params && typeof config.params === 'object') {
+    Object.entries(config.params).forEach(([key, value]) => {
+      if (value === undefined || value === null) {
+        return;
+      }
+      target.searchParams.set(key, String(value));
+    });
+  }
+  return target.toString();
+};
+
+const maskUrl = (value: string) => value.replace(/\d{5,}/g, '*********');
+
+const truncate = (value: string) => (value.length <= 8 ? value : `${value.slice(0, 8)}…`);
+
+const sanitizeHeadersForLog = (headers: Record<string, unknown>) => {
+  const sanitized: Record<string, string> = {};
+  Object.entries(headers || {}).forEach(([key, rawValue]) => {
+    if (rawValue === undefined || rawValue === null) {
+      return;
+    }
+    const value = String(rawValue);
+    if (key.toLowerCase() === 'authorization') {
+      sanitized[key] = value.startsWith('Bearer ')
+        ? `Bearer ${truncate(value.slice(7))}`
+        : truncate(value);
+      return;
+    }
+    if (key.toLowerCase().includes('token')) {
+      sanitized[key] = truncate(value);
+      return;
+    }
+    sanitized[key] = value.length > 64 ? `${value.slice(0, 32)}…` : value;
+  });
+  return sanitized;
+};
+
+const stringifyBody = (data: unknown) => {
+  if (data === undefined || data === null) {
+    return 'null';
+  }
+  let serialized: string;
+  if (typeof data === 'string') {
+    serialized = data;
+  } else {
+    try {
+      serialized = JSON.stringify(data);
+    } catch (error) {
+      serialized = '[unserializable]';
+    }
+  }
+  if (serialized.length > MAX_LOG_BODY) {
+    return `${serialized.slice(0, MAX_LOG_BODY)}…`;
+  }
+  return serialized;
+};
+
+const byteLength = (value: string) => {
+  try {
+    return Buffer.byteLength(value, 'utf8');
+  } catch (error) {
+    return value.length;
+  }
+};
+
 rapidoc.interceptors.request.use((config) => {
-  const method = (config.method || 'get').toLowerCase();
-  const token = process.env.RAPIDOC_TOKEN;
-  const clientId = process.env.RAPIDOC_CLIENT_ID;
+  const id = Math.random().toString(36).slice(2, 10);
+  const method = (config.method ?? 'get').toUpperCase();
+  const token = process.env.RAPIDOC_TOKEN ?? '';
+  const clientId = process.env.RAPIDOC_CLIENT_ID ?? '';
+
+  const existingHeaders: Record<string, unknown> = {
+    ...(config.headers ? (typeof config.headers === 'object' ? config.headers : {}) : {}),
+  };
+
+  delete existingHeaders.access_token;
+  delete existingHeaders['access-token'];
+  delete existingHeaders.AccessToken;
 
   const headers: Record<string, string> = {
     Accept: 'application/json',
@@ -22,29 +134,61 @@ rapidoc.interceptors.request.use((config) => {
 
   if (token) {
     headers.Authorization = `Bearer ${token}`;
-    // Some Rapidoc endpoints expect a header literal named `access_token`.
-    // Set it explicitly and also support legacy header name in case.
-    headers.access_token = token;
-    headers['access-token'] = token;
   }
 
-  if (['post', 'put', 'patch'].includes(method)) {
+  if (!['GET', 'DELETE'].includes(method)) {
     headers['Content-Type'] = 'application/json';
   }
 
-  // AxiosRequestHeaders has methods; cast to any to avoid type mismatch in this small helper.
-  config.headers = ({ ...(config.headers as Record<string, string>), ...headers } as any);
+  const mergedHeaders = {
+    ...existingHeaders,
+    ...headers,
+  };
 
-  // Debug: print outgoing headers in development to verify token presence
-  if (process.env.NODE_ENV !== 'production') {
-    try {
-      // eslint-disable-next-line no-console
-      console.debug('[rapidoc] outgoing headers:', config.headers);
-    } catch (e) {
-      // ignore
-    }
+  if (method === 'GET' || method === 'DELETE') {
+    delete mergedHeaders['Content-Type'];
+    delete mergedHeaders['content-type'];
   }
+
+  config.headers = mergedHeaders;
+
+  const requestUrl = buildUrl(config, baseURL);
+  config.metadata = {
+    id,
+    start: Date.now(),
+    url: requestUrl,
+    method,
+  };
+
+  const logHeaders = sanitizeHeadersForLog(mergedHeaders as Record<string, unknown>);
+  console.info(
+    `[rapidoc:req:${id}] ${method} ${maskUrl(requestUrl)} headers=${JSON.stringify(logHeaders)}`,
+  );
+
   return config;
 });
+
+rapidoc.interceptors.response.use(
+  (response: AxiosResponse) => {
+    const meta = response.config.metadata;
+    const duration = meta ? Date.now() - meta.start : 0;
+    const snippet = stringifyBody(response.data);
+    console.info(
+      `[rapidoc:res:${meta?.id ?? 'unknown'}] ${response.status} (${duration}ms) size=${byteLength(snippet)}`,
+    );
+    return response;
+  },
+  (error: AxiosError) => {
+    const config = error.config as AxiosRequestConfig;
+    const meta = config?.metadata;
+    const duration = meta ? Date.now() - meta.start : 0;
+    const status = error.response?.status ?? 'ERR';
+    const snippet = error.response ? stringifyBody(error.response.data) : 'null';
+    console.error(
+      `[rapidoc:err:${meta?.id ?? 'unknown'}] ${status} (${duration}ms) data=${snippet}`,
+    );
+    return Promise.reject(error);
+  },
+);
 
 export default rapidoc;

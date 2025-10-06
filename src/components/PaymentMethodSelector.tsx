@@ -1,6 +1,5 @@
-'use client';
+ï»¿'use client';
 
-import clsx from 'clsx';
 import type { BillingType } from '@/types/checkout';
 
 type MethodOption = {
@@ -16,33 +15,37 @@ type PaymentMethodSelectorProps = {
   pixAvailable: boolean;
 };
 
-const baseOptions: MethodOption[] = [
+const OPTIONS: MethodOption[] = [
   {
     value: 'BOLETO',
     label: 'Boleto',
-    description: 'Gerar boleto bancario com vencimento definido.',
+    description: 'Gerar boleto bancÃ¡rio com vencimento definido.',
   },
   {
     value: 'CREDIT_CARD',
-    label: 'Cartão de crédito',
-    description: 'Processar cobrança usando cartão de crédito sandbox.',
+    label: 'CartÃ£o de crÃ©dito',
+    description: 'Processar cobranÃ§a usando cartÃ£o de crÃ©dito sandbox.',
   },
   {
     value: 'UNDEFINED',
     label: 'Checkout Asaas',
-    description: 'Redirecionar para o checkout do Asaas e escolher o método na hora.',
+    description: 'Redirecionar para o checkout do Asaas e escolher o mÃ©todo na hora.',
   },
   {
     value: 'PIX',
     label: 'PIX',
-    description: 'Gerar QR Code PIX com confirmação em tempo real.',
+    description: 'Gerar QR Code PIX com confirmaÃ§Ã£o em tempo real.',
   },
 ];
 
 export default function PaymentMethodSelector({ value, onChange, pixAvailable }: PaymentMethodSelectorProps) {
-  const options = baseOptions.map((option) =>
+  const options = OPTIONS.map((option) =>
     option.value === 'PIX' && !pixAvailable
-      ? { ...option, description: 'Disponível em breve – use Boleto ou Cartão por enquanto.', disabled: true }
+      ? {
+          ...option,
+          description: 'DisponÃ­vel em breve â€“ use Boleto ou CartÃ£o por enquanto.',
+          disabled: true,
+        }
       : option,
   );
 
@@ -51,6 +54,11 @@ export default function PaymentMethodSelector({ value, onChange, pixAvailable }:
       {options.map((option) => {
         const isActive = option.value === value;
         const isDisabled = Boolean(option.disabled);
+        const baseClasses = 'rounded-lg border px-4 py-3 text-left shadow-sm transition';
+        const stateClasses = isActive ? ' border-zinc-900 bg-zinc-900 text-white' : ' border-zinc-200 bg-white';
+        const disabledClasses = isDisabled ? ' cursor-not-allowed opacity-60' : '';
+        const className = `${baseClasses}${stateClasses}${disabledClasses}`;
+        const descriptionClass = isActive ? 'text-white/80' : 'text-zinc-600';
 
         return (
           <button
@@ -58,14 +66,10 @@ export default function PaymentMethodSelector({ value, onChange, pixAvailable }:
             type="button"
             onClick={() => !isDisabled && onChange(option.value)}
             disabled={isDisabled}
-            className={clsx(
-              'rounded-lg border px-4 py-3 text-left shadow-sm transition',
-              isActive ? 'border-zinc-900 bg-zinc-900 text-white' : 'border-zinc-200 bg-white',
-              isDisabled && 'cursor-not-allowed opacity-60',
-            )}
+            className={className}
           >
             <span className="block text-sm font-semibold">{option.label}</span>
-            <span className="mt-1 block text-xs text-inherit/80">{option.description}</span>
+            <span className={`mt-1 block text-xs ${descriptionClass}`}>{option.description}</span>
             {isActive && !isDisabled && (
               <span className="mt-2 inline-block rounded-full bg-white/20 px-2 py-0.5 text-[10px] uppercase">
                 Selecionado

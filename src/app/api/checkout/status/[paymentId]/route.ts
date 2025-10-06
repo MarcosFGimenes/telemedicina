@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+﻿import { NextResponse } from 'next/server';
 import axios from 'axios';
 import { asaas } from '@/lib/asaas';
 

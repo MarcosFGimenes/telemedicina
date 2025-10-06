@@ -1,4 +1,4 @@
-export const onlyDigits = (value: string) => value.replace(/\D/g, '');
+﻿export const onlyDigits = (value: string) => value.replace(/\D/g, '');
 
 export const parseCurrencyInput = (value: string) => {
   const normalized = value.replace(/\./g, '').replace(',', '.');

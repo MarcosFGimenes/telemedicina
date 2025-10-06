@@ -1,4 +1,4 @@
-export type BillingType = 'BOLETO' | 'CREDIT_CARD' | 'UNDEFINED' | 'PIX';
+﻿export type BillingType = 'BOLETO' | 'CREDIT_CARD' | 'UNDEFINED' | 'PIX';
 
 export type CheckoutRequestBody = {
   billingType: BillingType;
