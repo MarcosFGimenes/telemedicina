@@ -1,5 +1,5 @@
 import type { getAsaasCustomer } from '@/lib/asaasService';
-import type { BeneficiaryInput } from '@/lib/rapidocService';
+import type { RapidocBeneficiaryPayload } from '@/lib/rapidocService';
 
 export type BeneficiaryUserRecord = {
   name?: string | null;
@@ -17,14 +17,7 @@ export type BeneficiaryUserRecord = {
   general?: string | null;
 };
 
-export const digitsOnly = (value?: string | null) => {
-  if (!value) {
-    return undefined;
-  }
-
-  const numeric = String(value).replace(/\D/g, '');
-  return numeric || undefined;
-};
+const onlyDigits = (value?: string | null) => (value ?? '').replace(/\D/g, '');
 
 type AsaasCustomer = Awaited<ReturnType<typeof getAsaasCustomer>>;
 
@@ -38,55 +31,55 @@ export const buildBeneficiaryPayload = ({
   cpf,
   user,
   customer,
-}: BuildPayloadArgs): BeneficiaryInput => {
-  const cpfDigits = digitsOnly(cpf) ?? cpf;
-  const normalizeUpper = (value?: string | null) => {
-    const trimmed = value?.trim();
-    return trimmed ? trimmed.toUpperCase() : undefined;
+}: BuildPayloadArgs): RapidocBeneficiaryPayload => {
+  const cpfDigits = onlyDigits(cpf);
+  const resolveName = () => {
+    if (user?.name) return user.name;
+    if (customer?.name) return customer.name;
+    const first = customer?.firstName ?? '';
+    const last = customer?.lastName ?? '';
+    return `${first} ${last}`.trim() || 'Cliente Asaas';
   };
 
-  const payload: BeneficiaryInput = {
-    name: user?.name ?? customer?.name ?? 'Cliente Asaas',
+  const birthday = (user?.birthday ?? customer?.birthDate ?? customer?.birthday ?? '').slice(0, 10);
+
+  const payload: RapidocBeneficiaryPayload = {
+    name: resolveName(),
     cpf: cpfDigits,
-    paymentType: normalizeUpper(user?.paymentType) ?? 'S',
-    serviceType: normalizeUpper(user?.serviceType) ?? 'GS',
-    holder: digitsOnly(user?.holder ?? customer?.cpfCnpj ?? cpfDigits) ?? cpfDigits,
-    general: user?.general?.trim() || 'General purpose',
+    birthday,
+    phone: onlyDigits(user?.phone ?? customer?.mobilePhone ?? customer?.phone ?? ''),
+    email: user?.email ?? customer?.email ?? undefined,
+    zipCode: onlyDigits(user?.zipCode ?? customer?.postalCode ?? ''),
+    address: [
+      user?.address ?? customer?.address ?? '',
+      customer?.addressNumber ?? '',
+      customer?.complement ?? '',
+    ]
+      .filter((part) => part && String(part).trim().length > 0)
+      .join(', ')
+      .trim() || undefined,
+    city: user?.city ?? customer?.cityName ?? customer?.city ?? undefined,
+    state: user?.state ?? customer?.state ?? undefined,
+    paymentType: 'S',
+    serviceType: 'GS',
+    holder: onlyDigits(user?.holder ?? customer?.cpfCnpj ?? cpfDigits) || undefined,
+    general: user?.general?.trim() || `asaasPayment:${customer?.id ?? ''}`,
   };
 
-  const email = user?.email ?? customer?.email ?? undefined;
-  if (email) {
-    payload.email = email;
+  if (!payload.phone) {
+    delete payload.phone;
   }
-
-  const phone = digitsOnly(user?.phone ?? customer?.mobilePhone ?? null);
-  if (phone) {
-    payload.phone = phone;
+  if (!payload.zipCode) {
+    delete payload.zipCode;
   }
-
-  const zipCode = digitsOnly(user?.zipCode ?? customer?.postalCode ?? null);
-  if (zipCode) {
-    payload.zipCode = zipCode;
+  if (!payload.holder) {
+    delete payload.holder;
   }
-
-  const address = user?.address ?? customer?.address ?? undefined;
-  if (address) {
-    payload.address = address;
+  if (!payload.address) {
+    delete payload.address;
   }
-
-  const city = user?.city ?? customer?.city ?? customer?.cityName ?? undefined;
-  if (city) {
-    payload.city = city;
-  }
-
-  const state = user?.state ?? customer?.state ?? undefined;
-  if (state) {
-    payload.state = state;
-  }
-
-  const birthday = user?.birthday?.trim() ?? undefined;
-  if (birthday) {
-    payload.birthday = birthday;
+  if (!payload.email) {
+    delete payload.email;
   }
 
   return payload;

@@ -1,12 +1,3 @@
-/**
- * Testes (Postman):
- * 1. Criar pagamento no Asaas e obter o paymentId.
- * 2. Confirmar pagamento no sandbox e aguardar status RECEIVED/CONFIRMED.
- * 3. GET /api/checkout/status/{paymentId} para validar o status.
- * 4. POST /api/checkout/finalizar com { paymentId, cpf } e verificar ensured.uuid.
- * 5. GET /api/rapidoc/beneficiaries/cpf/{cpf} para confirmar o beneficiário ativo.
- */
-
 import axios from 'axios';
 import { NextRequest, NextResponse } from 'next/server';
 import { asaas } from '@/lib/asaas';
@@ -14,9 +5,9 @@ import { db } from '@/lib/firebaseAdmin';
 import { getAsaasCustomer } from '@/lib/asaasService';
 import { buildBeneficiaryPayload, type BeneficiaryUserRecord } from '@/lib/beneficiaryPayload';
 import {
-  ensureBeneficiaryByCPF,
-  reactivateBeneficiary,
+  rapidocCreateOrResolveUuid,
   sanitizeCPF,
+  type RapidocBeneficiaryPayload,
 } from '@/lib/rapidocService';
 import {
   type AsaasPayment,
@@ -92,7 +83,7 @@ const assignIfMissing = (
   }
 };
 
-type HintedError = { hint?: string; status?: number };
+type HintedError = { hint?: string; status?: number; upstream?: unknown };
 const isHintedError = (value: unknown): value is HintedError =>
   typeof value === 'object' && value !== null && 'hint' in value;
 
@@ -121,6 +112,30 @@ const loadAsaasCustomer = async (customerId: string) => {
   }
 };
 
+const logRapidocAttempt = (payload: RapidocBeneficiaryPayload) => {
+  console.info('[checkout/finalizar] rapidoc:create:start', {
+    cpf: payload.cpf,
+    name: payload.name,
+    birthday: payload.birthday,
+  });
+};
+
+const logRapidocSuccess = (result: { raw: unknown; uuid: string; created: boolean }) => {
+  console.info('[checkout/finalizar] rapidoc:create:success', {
+    uuid: result.uuid,
+    created: result.created,
+  });
+  console.info('[checkout/finalizar] rapidoc:create:raw', result.raw);
+};
+
+const logRapidocFailure = (error: HintedError) => {
+  console.error('[checkout/finalizar] rapidoc:create:error', {
+    hint: error.hint ?? 'unknown',
+    status: error.status ?? 500,
+    upstream: error.upstream ?? null,
+  });
+};
+
 export async function POST(request: NextRequest) {
   const started = Date.now();
   console.info('[checkout/finalizar] received request');
@@ -136,6 +151,10 @@ export async function POST(request: NextRequest) {
   const paymentId = body.paymentId?.trim();
   const providedCpf = body.cpf ? sanitizeCPF(body.cpf) : undefined;
 
+  if (!paymentId) {
+    return jsonError('payment_missing', 400, 'paymentId é obrigatório.');
+  }
+
   if (providedCpf && providedCpf.length !== 11) {
     return jsonError('cpf_invalid', 400, 'CPF deve conter 11 dígitos.', { cpf: providedCpf });
   }
@@ -144,37 +163,35 @@ export async function POST(request: NextRequest) {
   let paymentStatus: string | undefined;
   let customerId: string | undefined;
 
-  if (paymentId) {
-    try {
-      payment = await fetchPayment(paymentId);
-      paymentStatus = payment.status;
-      customerId = typeof payment.customer === 'string' ? payment.customer : undefined;
+  try {
+    payment = await fetchPayment(paymentId);
+    paymentStatus = payment.status;
+    customerId = typeof payment.customer === 'string' ? payment.customer : undefined;
 
-      if (paymentStatus && !SUCCESS_STATUS.has(paymentStatus as (typeof PAYMENT_SUCCESS_STATUSES)[number])) {
-        return jsonError('payment_not_confirmed', 409, 'Pagamento ainda não confirmado.', {
-          status: paymentStatus,
-        });
-      }
-    } catch (error) {
-      console.error('[checkout/finalizar] error loading payment', paymentId, error);
-      return handleUpstreamError(error, 'asaas-payment');
+    if (paymentStatus && !SUCCESS_STATUS.has(paymentStatus as (typeof PAYMENT_SUCCESS_STATUSES)[number])) {
+      return jsonError('payment_not_confirmed', 409, 'Pagamento ainda não confirmado.', {
+        status: paymentStatus,
+      });
     }
+  } catch (error) {
+    console.error('[checkout/finalizar] error loading payment', paymentId, error);
+    return handleUpstreamError(error, 'asaas-payment');
   }
 
   let cpfDigits = providedCpf;
   let asaasCustomer: Awaited<ReturnType<typeof getAsaasCustomer>> | null = null;
 
-  if (!cpfDigits && payment && customerId) {
-    asaasCustomer = await loadAsaasCustomer(customerId);
+  if (!cpfDigits && payment?.customer && typeof payment.customer === 'string') {
+    asaasCustomer = await loadAsaasCustomer(payment.customer);
     cpfDigits = sanitizeCPF(asaasCustomer?.cpfCnpj ?? '');
   }
 
-  if (!cpfDigits && payment && typeof payment.cpfCnpj === 'string') {
+  if (!cpfDigits && typeof payment?.cpfCnpj === 'string') {
     cpfDigits = sanitizeCPF(payment.cpfCnpj);
   }
 
-  if (!cpfDigits && customerId && !asaasCustomer) {
-    asaasCustomer = await loadAsaasCustomer(customerId);
+  if (!cpfDigits && payment?.customer && typeof payment.customer === 'string' && !asaasCustomer) {
+    asaasCustomer = await loadAsaasCustomer(payment.customer);
     cpfDigits = sanitizeCPF(asaasCustomer?.cpfCnpj ?? '');
   }
 
@@ -186,26 +203,24 @@ export async function POST(request: NextRequest) {
     asaasCustomer = await loadAsaasCustomer(customerId);
   }
 
-  const paymentDocRef = paymentId ? db.collection('payments').doc(paymentId) : null;
-  if (paymentDocRef) {
-    try {
-      const existingDoc = await paymentDocRef.get();
-      if (existingDoc.exists) {
-        const data = existingDoc.data() ?? {};
-        if (data.processed) {
-          console.info(`[checkout/finalizar] idempotent hit payment=${paymentId}`);
-          return NextResponse.json<FinalizeResponseBody>({
-            ok: true,
-            status: (data.status as string) ?? paymentStatus ?? 'CONFIRMED',
-            ensured: data.beneficiaryUuid
-              ? { uuid: data.beneficiaryUuid as string, created: Boolean(data.beneficiaryCreated) }
-              : null,
-          });
-        }
+  const paymentDocRef = db.collection('payments').doc(paymentId);
+  try {
+    const existingDoc = await paymentDocRef.get();
+    if (existingDoc.exists) {
+      const data = existingDoc.data() ?? {};
+      if (data.processed) {
+        console.info(`[checkout/finalizar] idempotent hit payment=${paymentId}`);
+        return NextResponse.json<FinalizeResponseBody>({
+          ok: true,
+          status: (data.status as string) ?? paymentStatus ?? 'CONFIRMED',
+          ensured: data.beneficiaryUuid
+            ? { uuid: data.beneficiaryUuid as string, created: Boolean(data.beneficiaryCreated) }
+            : null,
+        });
       }
-    } catch (error) {
-      console.error('[checkout/finalizar] failed to load payment doc', paymentId, error);
     }
+  } catch (error) {
+    console.error('[checkout/finalizar] failed to load payment doc', paymentId, error);
   }
 
   const usersCollection = db.collection('users');
@@ -237,30 +252,24 @@ export async function POST(request: NextRequest) {
     customer: asaasCustomer,
   });
 
+  logRapidocAttempt(ensurePayload);
+
   let ensured;
   try {
-    ensured = await ensureBeneficiaryByCPF(ensurePayload);
+    ensured = await rapidocCreateOrResolveUuid(ensurePayload);
+    logRapidocSuccess(ensured);
   } catch (error) {
-    console.error('[checkout/finalizar] ensure beneficiary failed', cpfDigits, error);
     if (isHintedError(error)) {
-      return jsonError(error.hint ?? 'rapidoc-error', error.status ?? 500, 'Não foi possível garantir o beneficiário.', error);
+      logRapidocFailure(error);
+      const status = error.status ?? 502;
+      return jsonError(error.hint ?? 'rapidoc-error', status, 'Não foi possível garantir o beneficiário.', error);
     }
+    console.error('[checkout/finalizar] ensure beneficiary failed', cpfDigits, error);
     return handleUpstreamError(error, 'rapidoc-ensure');
   }
 
   if (!ensured?.uuid) {
-    return jsonError('rapidoc-ensure', 500, 'Beneficiário sem identificador retornado.');
-  }
-
-  try {
-    await reactivateBeneficiary(ensured.uuid);
-  } catch (error) {
-    if (axios.isAxiosError(error) && [409, 422].includes(error.response?.status ?? 0)) {
-      console.info('[checkout/finalizar] reactivate ignored status', error.response?.status);
-    } else {
-      console.error('[checkout/finalizar] reactivate failed', ensured.uuid, error);
-      return handleUpstreamError(error, 'rapidoc-reactivate');
-    }
+    return jsonError('rapidoc-ensure', 502, 'Beneficiário sem identificador retornado.', ensured?.raw ?? null);
   }
 
   if (userRef) {
@@ -274,9 +283,7 @@ export async function POST(request: NextRequest) {
       updates.asaasCustomerId = customerId;
     }
 
-    if (paymentId) {
-      updates.lastPaymentId = paymentId;
-    }
+    updates.lastPaymentId = paymentId;
 
     if (asaasCustomer) {
       assignIfMissing(updates, userData, 'name', asaasCustomer.name);
@@ -295,21 +302,19 @@ export async function POST(request: NextRequest) {
 
   const resolvedStatus = paymentStatus ?? 'CONFIRMED';
 
-  if (paymentDocRef) {
-    const docPayload: Record<string, unknown> = {
-      processed: true,
-      processedAt: new Date(),
-      cpf: cpfDigits,
-      beneficiaryUuid: ensured.uuid,
-      beneficiaryCreated: Boolean(ensured.created),
-      status: resolvedStatus,
-    };
+  const docPayload: Record<string, unknown> = {
+    processed: true,
+    processedAt: new Date(),
+    cpf: cpfDigits,
+    beneficiaryUuid: ensured.uuid,
+    beneficiaryCreated: Boolean(ensured.created),
+    status: resolvedStatus,
+  };
 
-    await paymentDocRef.set(docPayload, { merge: true });
-  }
+  await paymentDocRef.set(docPayload, { merge: true });
 
   console.info(
-    `[checkout/finalizar] completed in ${Date.now() - started}ms payment=${paymentId ?? 'none'} ensured=${ensured.uuid}`,
+    `[checkout/finalizar] completed in ${Date.now() - started}ms payment=${paymentId} ensured=${ensured.uuid}`,
   );
 
   return NextResponse.json<FinalizeResponseBody>({
