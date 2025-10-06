@@ -92,7 +92,7 @@ const stringifyBody = (data: unknown) => {
   } else {
     try {
       serialized = JSON.stringify(data);
-    } catch (error) {
+    } catch {
       serialized = '[unserializable]';
     }
   }
@@ -105,7 +105,7 @@ const stringifyBody = (data: unknown) => {
 const byteLength = (value: string) => {
   try {
     return Buffer.byteLength(value, 'utf8');
-  } catch (error) {
+  } catch {
     return value.length;
   }
 };
@@ -124,26 +124,32 @@ rapidoc.interceptors.request.use((config) => {
   delete existingHeaders['access-token'];
   delete existingHeaders.AccessToken;
 
-  const headers: Record<string, string> = {
+  const hasCustomContentType = Object.keys(existingHeaders).some(
+    (key) => key.toLowerCase() === 'content-type',
+  );
+
+  const mergedHeaders: Record<string, string> = {
     Accept: 'application/json',
   };
 
   if (clientId) {
-    headers.clientId = clientId;
+    mergedHeaders.clientId = clientId;
   }
 
   if (token) {
-    headers.Authorization = `Bearer ${token}`;
+    mergedHeaders.Authorization = `Bearer ${token}`;
   }
 
-  if (!['GET', 'DELETE'].includes(method)) {
-    headers['Content-Type'] = 'application/json';
+  if (!['GET', 'DELETE'].includes(method) && !hasCustomContentType) {
+    mergedHeaders['Content-Type'] = 'application/json';
   }
 
-  const mergedHeaders = {
-    ...existingHeaders,
-    ...headers,
-  };
+  Object.entries(existingHeaders).forEach(([key, value]) => {
+    if (value === undefined || value === null) {
+      return;
+    }
+    mergedHeaders[key] = String(value);
+  });
 
   if (method === 'GET' || method === 'DELETE') {
     delete mergedHeaders['Content-Type'];

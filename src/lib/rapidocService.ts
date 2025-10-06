@@ -35,7 +35,7 @@ const logDataPreview = (value: unknown) => {
   try {
     const serialized = typeof value === 'string' ? value : JSON.stringify(value);
     return serialized.length > 400 ? `${serialized.slice(0, 400)}…` : serialized;
-  } catch (_error) {
+  } catch {
     return '[unserializable]';
   }
 };
@@ -48,7 +48,7 @@ const buildBodySize = (value: unknown) => {
   try {
     const serialized = typeof value === 'string' ? value : JSON.stringify(value);
     return Buffer.byteLength(serialized, 'utf8');
-  } catch (_error) {
+  } catch {
     return 0;
   }
 };
@@ -73,6 +73,105 @@ export const sanitizeCPF = (cpf: string) => cpf.replace(/\D/g, '');
 type HintedError = { hint?: string; status?: number };
 const isHintedError = (value: unknown): value is HintedError =>
   typeof value === 'object' && value !== null && 'hint' in value;
+
+const candidateDocument = (record: Record<string, unknown> | null | undefined) => {
+  if (!record) {
+    return undefined;
+  }
+
+  const possibleKeys = ['cpf', 'document', 'cpfCnpj', 'holder', 'documentNumber', 'cpfNumber'];
+  for (const key of possibleKeys) {
+    const value = record[key];
+    if (typeof value === 'string') {
+      const digits = sanitizeCPF(value);
+      if (digits) {
+        return digits;
+      }
+    }
+
+    if (typeof value === 'object' && value !== null) {
+      const nested = candidateDocument(value as Record<string, unknown>);
+      if (nested) {
+        return nested;
+      }
+    }
+  }
+
+  return undefined;
+};
+
+const pickFirstRecord = (value: unknown): Record<string, unknown> | null => {
+  if (!value) {
+    return null;
+  }
+
+  if (Array.isArray(value)) {
+    return value.length > 0 && typeof value[0] === 'object' && value[0] !== null
+      ? (value[0] as Record<string, unknown>)
+      : null;
+  }
+
+  if (typeof value === 'object' && value !== null) {
+    return value as Record<string, unknown>;
+  }
+
+  return null;
+};
+
+const findBeneficiaryCandidate = (raw: unknown, cpfDigits: string) => {
+  if (!raw) {
+    return null;
+  }
+
+  const inspectRecord = (record: Record<string, unknown>) => {
+    const document = candidateDocument(record);
+    if (!document || document !== cpfDigits) {
+      return null;
+    }
+    return record;
+  };
+
+  if (Array.isArray(raw)) {
+    for (const entry of raw) {
+      if (typeof entry === 'object' && entry !== null) {
+        const match = inspectRecord(entry as Record<string, unknown>);
+        if (match) {
+          return match;
+        }
+      }
+    }
+    return null;
+  }
+
+  if (typeof raw === 'object' && raw !== null) {
+    const record = raw as Record<string, unknown>;
+    if (Array.isArray(record.content)) {
+      for (const entry of record.content) {
+        if (typeof entry === 'object' && entry !== null) {
+          const match = inspectRecord(entry as Record<string, unknown>);
+          if (match) {
+            return match;
+          }
+        }
+      }
+    }
+
+    const directMatch = inspectRecord(record);
+    if (directMatch) {
+      return directMatch;
+    }
+
+    const firstContent = pickFirstRecord(record.content);
+    if (firstContent) {
+      const nestedMatch = inspectRecord(firstContent);
+      if (nestedMatch) {
+        return nestedMatch;
+      }
+    }
+  }
+
+  return null;
+};
 
 const attemptGet = async <T>(op: string, url: string, config?: AxiosRequestConfig<unknown>): Promise<T> => {
   const id = nextLogId();
@@ -107,10 +206,10 @@ export async function getBeneficiaryByCPF(cpf: string) {
   for (const attempt of attempts) {
     try {
       const data = await attempt();
-      if (Array.isArray(data)) {
-        return data[0];
+      const match = findBeneficiaryCandidate(data, digits);
+      if (match) {
+        return match;
       }
-      return data;
     } catch (error) {
       if (axios.isAxiosError(error) && error.response?.status === 404) {
         continue;
@@ -129,9 +228,20 @@ export async function createBeneficiaryOne(payload: BeneficiaryInput) {
   logRequest(id, 'create', url, [payload]);
 
   try {
-    const response = await rapidoc.post(url, [payload]);
+    const response = await rapidoc.post(url, [payload], {
+      headers: { 'Content-Type': 'application/vnd.rapidoc.tema-v2+json' },
+    });
     logResponse(id, response.status, start);
-    const data = Array.isArray(response.data) ? response.data[0] : response.data;
+    const rawData = response.data as
+      | Array<Record<string, unknown>>
+      | { content?: Array<Record<string, unknown>> }
+      | Record<string, unknown>
+      | undefined;
+    const data = Array.isArray(rawData)
+      ? rawData[0]
+      : Array.isArray(rawData?.content)
+        ? rawData?.content[0]
+        : rawData;
     const uuid = data?.uuid ?? data?.id;
     return { uuid, raw: data };
   } catch (error) {
@@ -148,7 +258,11 @@ export async function createBeneficiaryOne(payload: BeneficiaryInput) {
 export async function ensureBeneficiaryByCPF(payload: BeneficiaryInput) {
   try {
     const existing = await getBeneficiaryByCPF(payload.cpf);
-    const uuid = existing?.uuid ?? existing?.id;
+    const record = existing as { uuid?: string; id?: string };
+    const uuid = record?.uuid ?? record?.id;
+    if (!uuid) {
+      throw { status: 404, hint: 'rapidoc-cpf-not-found' } satisfies HintedError;
+    }
     return { uuid, created: false, raw: existing };
   } catch (error) {
     if (isHintedError(error) && error.hint === 'rapidoc-cpf-not-found') {
