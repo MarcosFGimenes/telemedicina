@@ -18,6 +18,7 @@ export type BeneficiaryUserRecord = {
 };
 
 const onlyDigits = (value?: string | null) => (value ?? '').replace(/\D/g, '');
+export const digitsOnly = (value?: string | null) => onlyDigits(value);
 
 type AsaasCustomer = Awaited<ReturnType<typeof getAsaasCustomer>>;
 

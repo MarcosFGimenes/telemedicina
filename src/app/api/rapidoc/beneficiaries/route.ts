@@ -5,7 +5,7 @@ import rapidoc from '@/lib/rapidoc';
 export async function POST(req: NextRequest) {
 try {
 const body = await req.json(); // array de beneficiários
-const { data } = await rapidoc.post('/beneficiaries', body);
+const { data } = await rapidoc.post('/beneficiaries', body, { headers: { 'Content-Type': 'application/vnd.rapidoc.tema-v2+json' } });
 return NextResponse.json(data);
 } catch (e: any) {
 return NextResponse.json({ error: e?.response?.data || e.message }, { status: e?.response?.status || 500 });

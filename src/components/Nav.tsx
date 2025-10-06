@@ -12,8 +12,9 @@ const tabs: Tab[] = [
   { href: "/assinante/dashboard", label: "Assinante" },
   { href: "/assinante/agendamentos", label: "Agendamentos" },
   { href: "/assinante/dependentes", label: "Dependentes" },
-  { href: "/assinante/pagar", label: "Pagar" },
+  // { href: "/assinante/pagar", label: "Pagar" },
   { href: "/admin/beneficiarios", label: "Admin/Beneficiarios" },
+  { href: "/teste-rapidoc", label: "Teste Rapidoc" },
 ];
 
 export default function Nav() {
