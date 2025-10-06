@@ -10,6 +10,10 @@ export type BeneficiaryInput = {
   address?: string;
   city?: string;
   state?: string;
+  paymentType?: string;
+  serviceType?: string;
+  holder?: string;
+  general?: string;
 };
 
 export async function getBeneficiaryByCPF(cpf: string) {
