@@ -100,24 +100,6 @@ const candidateDocument = (record: Record<string, unknown> | null | undefined) =
   return undefined;
 };
 
-const pickFirstRecord = (value: unknown): Record<string, unknown> | null => {
-  if (!value) {
-    return null;
-  }
-
-  if (Array.isArray(value)) {
-    return value.length > 0 && typeof value[0] === 'object' && value[0] !== null
-      ? (value[0] as Record<string, unknown>)
-      : null;
-  }
-
-  if (typeof value === 'object' && value !== null) {
-    return value as Record<string, unknown>;
-  }
-
-  return null;
-};
-
 const findBeneficiaryCandidate = (raw: unknown, cpfDigits: string) => {
   if (!raw) {
     return null;
@@ -160,17 +142,25 @@ const findBeneficiaryCandidate = (raw: unknown, cpfDigits: string) => {
     if (directMatch) {
       return directMatch;
     }
-
-    const firstContent = pickFirstRecord(record.content);
-    if (firstContent) {
-      const nestedMatch = inspectRecord(firstContent);
-      if (nestedMatch) {
-        return nestedMatch;
-      }
-    }
   }
 
   return null;
+};
+
+const extractIdentifier = (record: Record<string, unknown> | null | undefined) => {
+  if (!record) {
+    return undefined;
+  }
+
+  const candidateKeys = ['uuid', 'id', 'beneficiaryUuid', 'identifier'];
+  for (const key of candidateKeys) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+  }
+
+  return undefined;
 };
 
 const attemptGet = async <T>(op: string, url: string, config?: AxiosRequestConfig<unknown>): Promise<T> => {
@@ -197,23 +187,15 @@ const attemptGet = async <T>(op: string, url: string, config?: AxiosRequestConfi
 
 export async function getBeneficiaryByCPF(cpf: string) {
   const digits = sanitizeCPF(cpf);
-  const attempts: Array<() => Promise<unknown>> = [
-    () => attemptGet('getByCPF', `/beneficiaries/cpf/${digits}`),
-    () => attemptGet('getByCPF', '/beneficiaries', { params: { cpf: digits } }),
-    () => attemptGet('getByCPF', `/beneficiaries/document/${digits}`),
-  ];
 
-  for (const attempt of attempts) {
-    try {
-      const data = await attempt();
-      const match = findBeneficiaryCandidate(data, digits);
-      if (match) {
-        return match;
-      }
-    } catch (error) {
-      if (axios.isAxiosError(error) && error.response?.status === 404) {
-        continue;
-      }
+  try {
+    const data = await attemptGet('getByCPF', '/beneficiaries', { params: { cpf: digits } });
+    const match = findBeneficiaryCandidate(data, digits);
+    if (match) {
+      return match;
+    }
+  } catch (error) {
+    if (!axios.isAxiosError(error) || error.response?.status !== 404) {
       throw error;
     }
   }
@@ -225,10 +207,18 @@ export async function createBeneficiaryOne(payload: BeneficiaryInput) {
   const id = nextLogId();
   const start = Date.now();
   const url = '/beneficiaries';
-  logRequest(id, 'create', url, [payload]);
+  const digits = sanitizeCPF(payload.cpf);
+  const normalizedPayload: BeneficiaryInput = {
+    ...payload,
+    cpf: digits,
+    phone: payload.phone ? payload.phone.replace(/\D/g, '') : undefined,
+    zipCode: payload.zipCode ? payload.zipCode.replace(/\D/g, '') : undefined,
+    holder: payload.holder ? payload.holder.replace(/\D/g, '') : undefined,
+  };
+  logRequest(id, 'create', url, [normalizedPayload]);
 
   try {
-    const response = await rapidoc.post(url, [payload], {
+    const response = await rapidoc.post(url, [normalizedPayload], {
       headers: { 'Content-Type': 'application/vnd.rapidoc.tema-v2+json' },
     });
     logResponse(id, response.status, start);
@@ -237,13 +227,9 @@ export async function createBeneficiaryOne(payload: BeneficiaryInput) {
       | { content?: Array<Record<string, unknown>> }
       | Record<string, unknown>
       | undefined;
-    const data = Array.isArray(rawData)
-      ? rawData[0]
-      : Array.isArray(rawData?.content)
-        ? rawData?.content[0]
-        : rawData;
-    const uuid = data?.uuid ?? data?.id;
-    return { uuid, raw: data };
+    const match = findBeneficiaryCandidate(rawData, digits);
+    const uuid = extractIdentifier(match ?? null);
+    return { uuid, raw: response.data };
   } catch (error) {
     if (axios.isAxiosError(error)) {
       const status = error.response?.status ?? 'ERR';
@@ -256,10 +242,10 @@ export async function createBeneficiaryOne(payload: BeneficiaryInput) {
 }
 
 export async function ensureBeneficiaryByCPF(payload: BeneficiaryInput) {
+  const digits = sanitizeCPF(payload.cpf);
   try {
-    const existing = await getBeneficiaryByCPF(payload.cpf);
-    const record = existing as { uuid?: string; id?: string };
-    const uuid = record?.uuid ?? record?.id;
+    const existing = await getBeneficiaryByCPF(digits);
+    const uuid = extractIdentifier(existing as Record<string, unknown>);
     if (!uuid) {
       throw { status: 404, hint: 'rapidoc-cpf-not-found' } satisfies HintedError;
     }
@@ -267,6 +253,9 @@ export async function ensureBeneficiaryByCPF(payload: BeneficiaryInput) {
   } catch (error) {
     if (isHintedError(error) && error.hint === 'rapidoc-cpf-not-found') {
       const { uuid, raw } = await createBeneficiaryOne(payload);
+      if (!uuid) {
+        throw new Error('rapidoc-ensure: Beneficiário sem identificador retornado');
+      }
       return { uuid, created: true, raw };
     }
     throw error;

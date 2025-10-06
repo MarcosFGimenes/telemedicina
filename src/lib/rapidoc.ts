@@ -38,7 +38,7 @@ if (baseURL.startsWith('http://')) {
 
 const rapidoc = axios.create({
   baseURL,
-  timeout: 20000,
+  timeout: 30000,
 });
 
 const buildUrl = (config: AxiosRequestConfig, fallbackBase: string) => {
