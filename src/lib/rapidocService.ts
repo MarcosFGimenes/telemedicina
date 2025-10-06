@@ -10,6 +10,10 @@ export type BeneficiaryInput = {
   address?: string;
   city?: string;
   state?: string;
+  paymentType?: string;
+  serviceType?: string;
+  holder?: string;
+  general?: string;
 };
 
 export async function getBeneficiaryByCPF(cpf: string) {
@@ -24,8 +28,11 @@ export async function createBeneficiaryOne(payload: BeneficiaryInput) {
   return { raw: data, uuid };
 }
 
-export async function reactivateBeneficiary(beneficiaryId: string) {
-  const response = await rapidoc.put(`/beneficiaries/${beneficiaryId}/reactivate`, {});
+export async function reactivateBeneficiary(
+  beneficiaryId: string,
+  payload: BeneficiaryInput,
+) {
+  const response = await rapidoc.put(`/beneficiaries/${beneficiaryId}/reactivate`, payload);
   return response.data;
 }
 

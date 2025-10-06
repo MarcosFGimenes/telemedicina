@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/firebaseAdmin';
 import { getAsaasCustomer } from '@/lib/asaasService';
 import {
-  ensureBeneficiaryByCPF,
-  reactivateBeneficiary,
-} from '@/lib/rapidocService';
+  buildBeneficiaryPayload,
+  type BeneficiaryUserRecord,
+} from '@/lib/beneficiaryPayload';
+import { ensureBeneficiaryByCPF, reactivateBeneficiary } from '@/lib/rapidocService';
 
 const SECRET = process.env.ASAAS_WEBHOOK_SECRET || '';
 
@@ -38,10 +39,13 @@ export async function POST(req: NextRequest) {
     .get();
 
   let userRef = snapshot.empty ? null : snapshot.docs[0].ref;
-  let user = snapshot.empty ? null : snapshot.docs[0].data();
+  let user = snapshot.empty ? null : (snapshot.docs[0].data() as BeneficiaryUserRecord | null);
+  let asaasCustomer: Awaited<ReturnType<typeof getAsaasCustomer>> | null = null;
 
   if (!userRef) {
     const customer = await getAsaasCustomer(customerId);
+    asaasCustomer = customer;
+
     if (!customer?.cpfCnpj) {
       await db.collection('events').add({
         kind: 'webhook_missing_cpf',
@@ -69,7 +73,7 @@ export async function POST(req: NextRequest) {
     });
 
     userRef = created;
-    user = (await created.get()).data();
+    user = (await created.get()).data() as BeneficiaryUserRecord | null;
   }
 
   if (!userRef || !user) {
@@ -77,23 +81,17 @@ export async function POST(req: NextRequest) {
   }
 
   const cpfDigits = String(user.cpf || '').replace(/\D/g, '');
-  const basePayload = {
-    name: user.name,
+  const basePayload = buildBeneficiaryPayload({
     cpf: cpfDigits,
-    email: user.email || undefined,
-    phone: user.phone || undefined,
-    zipCode: user.zipCode || undefined,
-    address: user.address || undefined,
-    city: user.city || undefined,
-    state: user.state || undefined,
-    birthday: user.birthday || undefined,
-  };
+    user,
+    customer: asaasCustomer,
+  });
 
   if (ACTIVATION_EVENTS.has(type)) {
     const ensured = await ensureBeneficiaryByCPF(basePayload);
     if (ensured?.uuid) {
       try {
-        await reactivateBeneficiary(ensured.uuid);
+        await reactivateBeneficiary(ensured.uuid, basePayload);
       } catch (error) {
         console.error('[asaas/webhook] reactivate failed', ensured.uuid, error);
       }
