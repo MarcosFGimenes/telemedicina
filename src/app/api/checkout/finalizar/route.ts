@@ -309,6 +309,10 @@ export async function POST(request: NextRequest) {
     beneficiaryUuid: ensured.uuid,
     beneficiaryCreated: Boolean(ensured.created),
     status: resolvedStatus,
+    billingType: payment?.billingType ?? null,
+    value: payment?.value ?? null,
+    invoiceUrl: payment?.invoiceUrl ?? null,
+    customerId: customerId ?? (typeof payment?.customer === 'string' ? payment?.customer : null),
   };
 
   await paymentDocRef.set(docPayload, { merge: true });
@@ -316,6 +320,33 @@ export async function POST(request: NextRequest) {
   console.info(
     `[checkout/finalizar] completed in ${Date.now() - started}ms payment=${paymentId} ensured=${ensured.uuid}`,
   );
+
+  // Cria assinatura mensal automática (apenas uma vez por usuário)
+  try {
+    if (userRef && SUCCESS_STATUS.has(resolvedStatus as any) && customerId && (!userData || !userData.asaasSubscriptionId)) {
+      const subBody: Record<string, unknown> = {
+        customer: customerId,
+        billingType: payment?.billingType || 'PIX',
+        value: payment?.value || 0,
+        cycle: 'MONTHLY',
+      };
+      // Define próxima data igual +30 dias a partir de hoje
+      const next = new Date();
+      next.setDate(next.getDate() + 30);
+      const yyyy = next.getFullYear();
+      const mm = String(next.getMonth() + 1).padStart(2, '0');
+      const dd = String(next.getDate()).padStart(2, '0');
+      (subBody as any).nextDueDate = `${yyyy}-${mm}-${dd}`;
+
+      const created = await asaas.post('/subscriptions', subBody);
+      const subscriptionId = created?.data?.id as string | undefined;
+      if (subscriptionId) {
+        await userRef.set({ asaasSubscriptionId: subscriptionId, updatedAt: new Date() }, { merge: true });
+      }
+    }
+  } catch (error) {
+    console.error('[checkout/finalizar] failed to create subscription', { customerId, paymentId }, error);
+  }
 
   return NextResponse.json<FinalizeResponseBody>({
     ok: true,

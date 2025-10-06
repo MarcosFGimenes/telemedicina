@@ -1,6 +1,7 @@
 'use client';
 import axios from 'axios';
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useAuthContext } from '@/components/auth/AuthProvider';
 
 type BeneficiaryForm = {
   name: string;
@@ -15,6 +16,7 @@ type BeneficiaryForm = {
 };
 
 export default function AssinanteDependentesPage() {
+  const { token } = useAuthContext();
   const [form, setForm] = useState<BeneficiaryForm>({
     name: "",
     cpf: "",
@@ -29,6 +31,23 @@ export default function AssinanteDependentesPage() {
   const [resp, setResp] = useState<unknown>(null);
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
+  const [dependents, setDependents] = useState<any[]>([]);
+  const [limit, setLimit] = useState<number | null>(null);
+
+  useEffect(() => {
+    const load = async () => {
+      if (!token) return;
+      try {
+        const [meRes, depRes] = await Promise.all([
+          axios.get('/api/me', { headers: { Authorization: `Bearer ${token}` } }),
+          axios.get('/api/dependents', { headers: { Authorization: `Bearer ${token}` } }),
+        ]);
+        setLimit(Number(meRes?.data?.user?.maxDependents ?? NaN));
+        setDependents(Array.isArray(depRes?.data?.dependents) ? depRes.data.dependents : []);
+      } catch {}
+    };
+    load();
+  }, [token]);
 
   const onChange = (key: keyof BeneficiaryForm, value: string) => {
     setForm((state) => ({ ...state, [key]: value }));
@@ -43,6 +62,34 @@ export default function AssinanteDependentesPage() {
       const payload = [form];
       const { data } = await axios.post("/api/rapidoc/beneficiaries", payload);
       setResp(data);
+
+      // tenta extrair uuid e registrar no Firestore
+      try {
+        const raw = data;
+        let uuid: string | undefined;
+        const tryGet = (v: any): string | undefined => {
+          if (!v) return undefined;
+          if (typeof v === 'string') return v;
+          return v.uuid || v.id || v.beneficiaryUuid || undefined;
+        };
+        if (Array.isArray(raw)) {
+          uuid = tryGet(raw[0]);
+        } else if (raw?.data && Array.isArray(raw.data)) {
+          uuid = tryGet(raw.data[0]);
+        } else {
+          uuid = tryGet(raw);
+        }
+        if (uuid && token) {
+          await axios.post(
+            '/api/dependents',
+            { uuid, name: form.name, cpf: form.cpf },
+            { headers: { Authorization: `Bearer ${token}` } },
+          );
+          // refresh list
+          const li = await axios.get('/api/dependents', { headers: { Authorization: `Bearer ${token}` } });
+          setDependents(Array.isArray(li?.data?.dependents) ? li.data.dependents : []);
+        }
+      } catch {}
     } catch (e: any) {
       setErr(
         e?.response?.data?.backend ||
@@ -57,14 +104,34 @@ export default function AssinanteDependentesPage() {
 
   return (
     <div className="space-y-4">
-      <h2 className="text-xl font-semibold">Dependentes e Beneficiarios</h2>
+      <h2 className="section-title text-emerald-700">Dependentes e Beneficiários</h2>
+      <div className="card p-3 text-sm">
+        <p>
+          Dependentes cadastrados: <span className="font-medium">{dependents.length}</span>
+          {limit != null && !Number.isNaN(limit) && (
+            <>
+              {' '}de <span className="font-medium">{limit}</span> permitidos
+            </>
+          )}
+        </p>
+        {!!dependents.length && (
+          <ul className="mt-2 list-disc pl-5">
+            {dependents.map((d) => (
+              <li key={d.id} className="text-xs">
+                <span className="badge mr-2">{d.name || 'sem nome'}</span>
+                <span className="font-mono">{d.uuid}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
 
       <div className="grid gap-3 sm:grid-cols-2">
         {Object.entries(form).map(([key, value]) => (
-          <div key={key} className="rounded-lg border bg-white p-3">
-            <label className="mb-1 block text-sm font-medium">{key}</label>
+          <div key={key} className="card p-3">
+            <label className="label">{key}</label>
             <input
-              className="w-full rounded-md border px-3 py-2"
+              className="input"
               value={value}
               onChange={(event) => onChange(key as keyof BeneficiaryForm, event.target.value)}
               placeholder={key === "birthday" ? "dd/mm/aaaa" : ""}
@@ -75,15 +142,15 @@ export default function AssinanteDependentesPage() {
 
       <button
         onClick={submit}
-        disabled={loading}
-        className="rounded-md bg-zinc-900 px-4 py-2 text-white disabled:opacity-60"
+        disabled={loading || (limit != null && !Number.isNaN(limit) && dependents.length >= Number(limit))}
+        className="btn-primary disabled:opacity-60"
       >
         {loading ? "Enviando..." : "Criar beneficiario"}
       </button>
 
       {err && <p className="text-sm text-red-600">{String(err)}</p>}
       {resp && (
-        <pre className="whitespace-pre-wrap rounded-lg border bg-white p-3 text-xs">
+        <pre className="whitespace-pre-wrap card p-3 text-xs">
           {JSON.stringify(resp, null, 2)}
         </pre>
       )}

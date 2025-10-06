@@ -1,104 +1,45 @@
-/**
- * Testes (Postman):
- * 1. Criar pagamento no Asaas e obter o paymentId.
- * 2. Confirmar pagamento e garantir status RECEIVED/CONFIRMED.
- * 3. POST /api/checkout/finalizar com { paymentId, cpf }.
- * 4. GET /api/rapidoc/beneficiaries/cpf/{cpf} deve retornar o beneficiário.
- * 5. Repetir GET para validar idempotência.
- */
-
-import axios from 'axios';
 import { NextRequest, NextResponse } from 'next/server';
-import rapidoc from '@/lib/rapidoc';
+import { db } from '@/lib/firebaseAdmin';
 import { getBeneficiaryByCPF, sanitizeCPF } from '@/lib/rapidocService';
 
-const jsonError = (hint: string, status: number, message: string, upstream: unknown = null) =>
-  NextResponse.json(
-    {
-      hint,
-      upstreamStatus: status,
-      message,
-      upstream: typeof upstream === 'string' ? upstream : upstream ?? null,
-    },
-    { status },
-  );
-
-const handleUpstreamError = (error: unknown, hint: string) => {
-  if (axios.isAxiosError(error)) {
-    const status = error.response?.status && error.response.status !== 200 ? error.response.status : 500;
-    const upstreamStatus = error.response?.status ?? 500;
-    const upstreamData = error.response?.data;
-    const message =
-      (typeof upstreamData === 'object' && upstreamData !== null
-        ? ((upstreamData as Record<string, unknown>).message as string | undefined)
-        : undefined) ||
-      (typeof upstreamData === 'object' && upstreamData !== null && 'error' in upstreamData
-        ? ((upstreamData as { error?: Record<string, unknown> }).error?.message as string | undefined)
-        : undefined) ||
-      error.message ||
-      'unknown error';
-
-    return NextResponse.json(
-      {
-        hint,
-        upstreamStatus,
-        message,
-        upstream: typeof upstreamData === 'string' ? upstreamData : upstreamData ?? null,
-      },
-      { status },
-    );
-  }
-
-  const message = error instanceof Error ? error.message : 'unknown error';
-  return jsonError(hint, 500, message);
-};
-
-type HintedError = { hint?: string; status?: number };
-const isHintedError = (value: unknown): value is HintedError =>
-  typeof value === 'object' && value !== null && 'hint' in value;
-
-export async function GET(_request: NextRequest, ctx: { params: Promise<{ cpf: string }> }) {
-  const { cpf } = await ctx.params;
-  const digits = sanitizeCPF(cpf);
-
-  if (digits.length !== 11) {
-    return jsonError('cpf_invalid', 400, 'CPF deve conter 11 dígitos.');
-  }
-
+export async function GET(
+  _req: NextRequest,
+  ctx: { params: { cpf: string } },
+) {
   try {
-    const beneficiary = await getBeneficiaryByCPF(digits);
-    return NextResponse.json(beneficiary);
-  } catch (error) {
-    if (isHintedError(error) && error.hint === 'rapidoc-cpf-not-found') {
-      const status = error.status ?? 404;
-      return jsonError('rapidoc-cpf-not-found', status, 'Beneficiário não encontrado.', error);
+    const raw = ctx?.params?.cpf || '';
+    const cpf = sanitizeCPF(raw);
+    if (!cpf) {
+      return NextResponse.json({ error: 'missing_cpf' }, { status: 400 });
     }
 
-    return handleUpstreamError(error, 'rapidoc-get');
+    // busca na Rapidoc
+    const found = await getBeneficiaryByCPF(cpf);
+
+    // se retornou uuid, vincula automaticamente no user com mesmo CPF
+    const uuid = (found?.uuid as string | undefined) || (found?.id as string | undefined) || '';
+    if (uuid) {
+      try {
+        const users = db.collection('users');
+        const snap = await users.where('cpf', '==', cpf).limit(1).get();
+        if (!snap.empty) {
+          const ref = snap.docs[0].ref;
+          const data = snap.docs[0].data() as Record<string, unknown>;
+          const already = (data?.beneficiaryUuid as string | undefined) || '';
+          if (!already) {
+            await ref.set({ beneficiaryUuid: uuid, status: 'active', updatedAt: new Date() }, { merge: true });
+          }
+        }
+      } catch (e) {
+        console.error('[rapidoc/cpf] failed to link user uuid', cpf, uuid, e);
+      }
+    }
+
+    return NextResponse.json(found);
+  } catch (e: any) {
+    const status = e?.status || e?.response?.status || 500;
+    const message = e?.message || 'failed';
+    return NextResponse.json({ error: message }, { status });
   }
 }
 
-export async function PUT(request: NextRequest, ctx: { params: Promise<{ cpf: string }> }) {
-  const { cpf } = await ctx.params;
-  const digits = sanitizeCPF(cpf);
-
-  if (digits.length !== 11) {
-    return jsonError('cpf_invalid', 400, 'CPF deve conter 11 dígitos.');
-  }
-
-  let payload: unknown = {};
-  try {
-    payload = await request.json();
-  } catch (error) {
-    console.warn('[rapidoc/beneficiaries/cpf] failed to parse body', error);
-    payload = {};
-  }
-
-  try {
-    const { data } = await rapidoc.put(`/beneficiaries/cpf/${digits}`, payload);
-    return NextResponse.json(data);
-  } catch (error) {
-    console.error('[rapidoc/beneficiaries/cpf] update failed', digits, error);
-    return handleUpstreamError(error, 'rapidoc-update');
-  }
-}

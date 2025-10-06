@@ -20,7 +20,33 @@
 }
 
 body {
-  background: var(--background);
+  --brand: #16a34a; /* emerald-600 */
+  --brand-700: #15803d; /* emerald-700 */
+  --brand-50: #f0fdf4; /* emerald-50 */
+  --brand-100: #dcfce7; /* emerald-100 */
+
+  background: radial-gradient(1200px 600px at 20% -10%, var(--brand-50), transparent),
+    radial-gradient(800px 400px at 110% -10%, var(--brand-50), transparent), var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Utilitários de UI com Tailwind */
+.card { @apply rounded-xl border border-zinc-200/70 bg-white shadow-sm; }
+.section-title { @apply text-xl font-semibold; }
+.muted { @apply text-sm text-zinc-600; }
+.badge { @apply inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 ring-1 ring-inset ring-emerald-600/20; }
+
+.label { @apply mb-1 block text-sm font-medium text-zinc-700; }
+.input { @apply w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm shadow-sm placeholder-zinc-400 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-600/20; }
+.select { @apply w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-600/20; }
+.textarea { @apply w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-600/20; }
+
+.btn { @apply inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-offset-2; }
+.btn-primary { @apply inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-offset-2 bg-emerald-600 text-white hover:bg-emerald-700 focus:ring-emerald-600; }
+.btn-outline { @apply inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-offset-2 border border-emerald-600 text-emerald-700 hover:bg-emerald-50 focus:ring-emerald-600; }
+.btn-ghost { @apply inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-offset-2 text-emerald-700 hover:bg-emerald-50 focus:ring-emerald-600; }
+
+.table { @apply min-w-full text-sm; }
+.table th { @apply bg-emerald-50 px-3 py-2 text-left font-medium text-emerald-800; }
+.table td { @apply px-3 py-2; }

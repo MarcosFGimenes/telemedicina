@@ -106,6 +106,31 @@ export async function POST(req: NextRequest) {
     await userRef.update({ status: 'inactive', updatedAt: new Date() });
   }
 
+  // Registrar/atualizar documento de fatura (payments) deste pagamento
+  try {
+    const paymentId: string | undefined = payment?.id;
+    if (paymentId) {
+      const payRef = db.collection('payments').doc(paymentId);
+      const payload: Record<string, unknown> = {
+        updatedAt: new Date(),
+        customerId,
+        cpf: (user?.cpf as string | undefined) || null,
+        status: payment?.status || type,
+        value: payment?.value ?? null,
+        billingType: payment?.billingType ?? null,
+        invoiceUrl: payment?.invoiceUrl ?? null,
+      };
+      // Marca processed quando recebido/confirmado
+      if (ACTIVATION_EVENTS.has(type)) {
+        payload.processed = true;
+        payload.processedAt = new Date();
+      }
+      await payRef.set(payload, { merge: true });
+    }
+  } catch (e) {
+    console.error('[asaas/webhook] failed to write payment doc', payment?.id, e);
+  }
+
   await db.collection('events').add({
     kind: 'asaas_webhook',
     type,
