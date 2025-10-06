@@ -40,14 +40,18 @@ export const buildBeneficiaryPayload = ({
   customer,
 }: BuildPayloadArgs): BeneficiaryInput => {
   const cpfDigits = digitsOnly(cpf) ?? cpf;
+  const normalizeUpper = (value?: string | null) => {
+    const trimmed = value?.trim();
+    return trimmed ? trimmed.toUpperCase() : undefined;
+  };
 
   const payload: BeneficiaryInput = {
     name: user?.name ?? customer?.name ?? 'Cliente Asaas',
     cpf: cpfDigits,
-    paymentType: user?.paymentType ?? 'S',
-    serviceType: user?.serviceType ?? 'GS',
+    paymentType: normalizeUpper(user?.paymentType) ?? 'S',
+    serviceType: normalizeUpper(user?.serviceType) ?? 'GS',
     holder: digitsOnly(user?.holder ?? customer?.cpfCnpj ?? cpfDigits) ?? cpfDigits,
-    general: user?.general ?? 'General purpose',
+    general: user?.general?.trim() || 'General purpose',
   };
 
   const email = user?.email ?? customer?.email ?? undefined;
@@ -80,7 +84,7 @@ export const buildBeneficiaryPayload = ({
     payload.state = state;
   }
 
-  const birthday = user?.birthday ?? undefined;
+  const birthday = user?.birthday?.trim() ?? undefined;
   if (birthday) {
     payload.birthday = birthday;
   }

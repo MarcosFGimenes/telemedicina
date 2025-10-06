@@ -35,6 +35,11 @@ type CustomerForm = {
   address: string;
   city: string;
   state: string;
+  birthday: string;
+  paymentType: string;
+  serviceType: string;
+  holder: string;
+  general: string;
 };
 
 type CardForm = {
@@ -86,6 +91,19 @@ const extractErrorMessage = (error: unknown): string => {
   return error.message ?? 'Erro ao processar requisição';
 };
 
+const PAYMENT_TYPE_OPTIONS = [
+  { value: 'S', label: 'S - Recorrente' },
+  { value: 'A', label: 'A - Consulta' },
+];
+
+const SERVICE_TYPE_OPTIONS = [
+  { value: 'G', label: 'G - Clínico' },
+  { value: 'P', label: 'P - Psicologia' },
+  { value: 'GP', label: 'GP - Clínico + Psicologia' },
+  { value: 'GS', label: 'GS - Clínico + Especialistas' },
+  { value: 'GSP', label: 'GSP - Clínico + Especialistas + Psicologia' },
+];
+
 export default function PagarPage() {
   const [customer, setCustomer] = useState<CustomerForm>({
     name: '',
@@ -96,6 +114,11 @@ export default function PagarPage() {
     address: '',
     city: '',
     state: '',
+    birthday: '',
+    paymentType: PAYMENT_TYPE_OPTIONS[0]?.value ?? 'S',
+    serviceType: SERVICE_TYPE_OPTIONS[3]?.value ?? 'GS',
+    holder: '',
+    general: '',
   });
   const [method, setMethod] = useState<BillingType>(DEFAULT_METHOD);
   const [pixAvailable, setPixAvailable] = useState(true);
@@ -232,6 +255,34 @@ export default function PagarPage() {
       return null;
     }
 
+    const normalizedBirthday = customer.birthday.trim();
+    if (!normalizedBirthday) {
+      setError('Informe a data de nascimento.');
+      return null;
+    }
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedBirthday)) {
+      setError('Informe a data de nascimento no formato AAAA-MM-DD.');
+      return null;
+    }
+
+    const selectedPaymentType = customer.paymentType.trim().toUpperCase();
+    const paymentTypeOption = PAYMENT_TYPE_OPTIONS.find((option) => option.value === selectedPaymentType);
+    if (!paymentTypeOption) {
+      setError('Selecione um tipo de pagamento válido.');
+      return null;
+    }
+
+    const selectedServiceType = customer.serviceType.trim().toUpperCase();
+    const serviceTypeOption = SERVICE_TYPE_OPTIONS.find((option) => option.value === selectedServiceType);
+    if (!serviceTypeOption) {
+      setError('Selecione um tipo de serviço válido.');
+      return null;
+    }
+
+    const holderDigits = onlyDigits(customer.holder) || onlyDigits(customer.cpf);
+    const generalNotes = customer.general.trim();
+
     const parsedValue = parseCurrencyInput(amount);
     if (!Number.isFinite(parsedValue) || parsedValue <= 0) {
       setError('Informe um valor válido.');
@@ -249,6 +300,11 @@ export default function PagarPage() {
       address: customer.address || undefined,
       city: customer.city || undefined,
       state: customer.state || undefined,
+      birthday: normalizedBirthday,
+      paymentType: paymentTypeOption.value,
+      serviceType: serviceTypeOption.value,
+      holder: holderDigits || undefined,
+      general: generalNotes || undefined,
       description: undefined,
     };
 
@@ -422,6 +478,17 @@ export default function PagarPage() {
             </div>
 
             <div className="grid gap-1">
+              <label className="text-sm font-medium">Data de nascimento</label>
+              <input
+                type="date"
+                className="rounded-md border px-3 py-2"
+                placeholder="2000-01-01"
+                value={customer.birthday}
+                onChange={(event) => handleCustomerChange('birthday', event.target.value)}
+              />
+            </div>
+
+            <div className="grid gap-1">
               <label className="text-sm font-medium">E-mail</label>
               <input
                 className="rounded-md border px-3 py-2"
@@ -478,6 +545,58 @@ export default function PagarPage() {
                   placeholder="SP"
                   value={customer.state}
                   onChange={(event) => handleCustomerChange('state', event.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-1 md:grid-cols-2">
+              <div className="grid gap-1">
+                <label className="text-sm font-medium">Tipo de pagamento Rapidoc</label>
+                <select
+                  className="rounded-md border px-3 py-2"
+                  value={customer.paymentType}
+                  onChange={(event) => handleCustomerChange('paymentType', event.target.value)}
+                >
+                  {PAYMENT_TYPE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid gap-1">
+                <label className="text-sm font-medium">Tipo de serviço Rapidoc</label>
+                <select
+                  className="rounded-md border px-3 py-2"
+                  value={customer.serviceType}
+                  onChange={(event) => handleCustomerChange('serviceType', event.target.value)}
+                >
+                  {SERVICE_TYPE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="grid gap-1 md:grid-cols-2">
+              <div className="grid gap-1">
+                <label className="text-sm font-medium">Titular do grupo (CPF)</label>
+                <input
+                  className="rounded-md border px-3 py-2"
+                  placeholder="CPF do titular"
+                  value={customer.holder}
+                  onChange={(event) => handleCustomerChange('holder', onlyDigits(event.target.value))}
+                />
+              </div>
+              <div className="grid gap-1">
+                <label className="text-sm font-medium">Campo geral (opcional)</label>
+                <input
+                  className="rounded-md border px-3 py-2"
+                  placeholder="Observações"
+                  value={customer.general}
+                  onChange={(event) => handleCustomerChange('general', event.target.value)}
                 />
               </div>
             </div>
