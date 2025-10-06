@@ -12,6 +12,67 @@ import {
   type AsaasPayment,
 } from '@/types/checkout';
 
+const digitsOnly = (value?: string | null) => {
+  if (!value) {
+    return undefined;
+  }
+
+  const numeric = String(value).replace(/\D/g, '');
+  return numeric || undefined;
+};
+
+const resolveEnsurePayload = (
+  cpfDigits: string,
+  user: Record<string, any> | null,
+  customer: Awaited<ReturnType<typeof getAsaasCustomer>> | null,
+): BeneficiaryInput => {
+  const payload: BeneficiaryInput = {
+    name: user?.name ?? customer?.name ?? 'Cliente Asaas',
+    cpf: cpfDigits,
+    paymentType: user?.paymentType ?? 'S',
+    serviceType: user?.serviceType ?? 'GS',
+    holder: digitsOnly(user?.holder ?? customer?.cpfCnpj ?? cpfDigits) ?? cpfDigits,
+    general: user?.general ?? 'General purpose',
+  };
+
+  const email = user?.email ?? customer?.email ?? undefined;
+  if (email) {
+    payload.email = email;
+  }
+
+  const phone = digitsOnly(user?.phone ?? customer?.mobilePhone ?? null);
+  if (phone) {
+    payload.phone = phone;
+  }
+
+  const zipCode = digitsOnly(user?.zipCode ?? customer?.postalCode ?? null);
+  if (zipCode) {
+    payload.zipCode = zipCode;
+  }
+
+  const address = user?.address ?? customer?.address ?? undefined;
+  if (address) {
+    payload.address = address;
+  }
+
+  const city = user?.city ?? customer?.city ?? customer?.cityName ?? undefined;
+  if (city) {
+    payload.city = city;
+  }
+
+  const state = user?.state ?? customer?.state ?? undefined;
+  if (state) {
+    payload.state = state;
+  }
+
+  const birthday = user?.birthday ?? undefined;
+  if (birthday) {
+    payload.birthday = birthday;
+  }
+
+  return payload;
+};
+
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as FinalizeRequestBody;
