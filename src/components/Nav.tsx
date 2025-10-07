@@ -1,23 +1,31 @@
 'use client';
-import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useAuthContext } from "@/components/auth/AuthProvider";
 
-type Tab = {
-  href: string;
-  label: string;
-};
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import { useAuthContext } from '@/components/auth/AuthProvider';
+import clsx from 'clsx';
 
-const tabs: Tab[] = [
-  { href: "/", label: "Inicio" },
-  { href: "/assinante/dashboard", label: "Assinante" },
-  { href: "/assinante/perfil", label: "Perfil" },
-  { href: "/assinante/agendamentos", label: "Agendamentos" },
-  { href: "/assinante/dependentes", label: "Dependentes" },
-  { href: "/assinante/faturas", label: "Faturas" },
-  // { href: "/assinante/pagar", label: "Pagar" },
-  { href: "/admin/beneficiarios", label: "Admin/Beneficiarios" },
-  { href: "/teste-rapidoc", label: "Teste Rapidoc" },
+const primaryLinks = [
+  {
+    href: '/',
+    label: 'Início',
+    match: (pathname: string) => pathname === '/',
+  },
+  {
+    href: '/assinante/dashboard',
+    label: 'Central do Assinante',
+    match: (pathname: string) => pathname.startsWith('/assinante'),
+  },
+  {
+    href: '/admin/dashboard',
+    label: 'Gestão Administrativa',
+    match: (pathname: string) => pathname.startsWith('/admin'),
+  },
+  {
+    href: '/teste-rapidoc',
+    label: 'Laboratório Rapidoc',
+    match: (pathname: string) => pathname.startsWith('/teste-rapidoc'),
+  },
 ];
 
 export default function Nav() {
@@ -25,38 +33,80 @@ export default function Nav() {
   const { user, signOut } = useAuthContext();
 
   return (
-    <nav className="w-full border-b border-emerald-100/80 bg-white/90 backdrop-blur supports-[backdrop-filter]:bg-white/70 sticky top-0 z-30">
-      <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
-        <div className="flex gap-3">
-        {tabs.map((tab) => {
-          const isActive = pathname === tab.href;
-          const baseClasses = "rounded-md px-3 py-1 text-sm transition";
-          const stateClasses = isActive
-            ? " bg-emerald-600 text-white shadow-sm"
-            : " text-emerald-700 hover:bg-emerald-50";
+    <header className="sticky top-0 z-40 border-b border-white/50 bg-white/80 backdrop-blur">
+      <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
+        <div className="flex items-center gap-8">
+          <Link href="/" className="flex items-center gap-2">
+            <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-600 text-sm font-semibold text-white shadow-md">
+              TM
+            </span>
+            <div className="hidden flex-col leading-tight sm:flex">
+              <span className="text-sm font-semibold text-emerald-700">Telemedicina+</span>
+              <span className="text-xs text-zinc-500">Rapidoc &amp; Asaas Hub</span>
+            </div>
+          </Link>
 
-          return (
-            <Link
-              key={tab.href}
-              href={tab.href}
-              className={`${baseClasses}${stateClasses}`}
-            >
-              {tab.label}
-            </Link>
-          );
-        })}
+          <nav className="hidden items-center gap-1 text-sm font-medium text-zinc-600 lg:flex">
+            {primaryLinks.map((link) => {
+              const isActive = link.match(pathname);
+              return (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  className={clsx(
+                    'rounded-full px-3 py-1.5 transition',
+                    isActive
+                      ? 'bg-emerald-600 text-white shadow'
+                      : 'text-zinc-600 hover:bg-emerald-50 hover:text-emerald-700',
+                  )}
+                >
+                  {link.label}
+                </Link>
+              );
+            })}
+          </nav>
         </div>
-        <div className="flex items-center gap-2">
-          {user ? (
+
+        <div className="flex items-center gap-2 text-sm">
+          {!user && (
+            <Link
+              href="/login"
+              className="rounded-full border border-emerald-600 px-4 py-1.5 font-medium text-emerald-700 transition hover:bg-emerald-50"
+            >
+              Entrar
+            </Link>
+          )}
+          {user && (
             <>
-              <span className="hidden text-xs text-zinc-600 sm:inline">{user.email}</span>
-              <button onClick={() => signOut()} className="btn-outline px-3 py-1">Sair</button>
+              <span className="hidden text-xs text-zinc-500 sm:inline">{user.email}</span>
+              <button
+                type="button"
+                onClick={() => signOut()}
+                className="rounded-full bg-emerald-600 px-4 py-1.5 text-sm font-medium text-white shadow transition hover:bg-emerald-700"
+              >
+                Sair
+              </button>
             </>
-          ) : (
-            <Link href="/login" className="btn-outline px-3 py-1">Entrar</Link>
           )}
         </div>
       </div>
-    </nav>
+      <nav className="flex justify-center gap-1 border-t border-white/40 bg-white/70 px-4 py-2 text-xs font-medium text-emerald-700 lg:hidden">
+        {primaryLinks.map((link) => {
+          const isActive = link.match(pathname);
+          return (
+            <Link
+              key={link.href}
+              href={link.href}
+              className={clsx(
+                'rounded-full px-3 py-1 transition',
+                isActive ? 'bg-emerald-600 text-white shadow-sm' : 'hover:bg-emerald-100',
+              )}
+            >
+              {link.label}
+            </Link>
+          );
+        })}
+      </nav>
+    </header>
   );
 }

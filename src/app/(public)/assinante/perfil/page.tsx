@@ -1,4 +1,5 @@
 'use client';
+
 import { useAuthContext } from '@/components/auth/AuthProvider';
 import { useEffect, useState } from 'react';
 
@@ -62,48 +63,62 @@ export default function PerfilPage() {
   };
 
   return (
-    <div className="space-y-4">
-      <h2 className="section-title text-emerald-700">Meu Perfil</h2>
+    <div className="space-y-6">
+      <section className="rounded-3xl border border-white/70 bg-white/90 p-6 shadow-sm">
+        <h2 className="text-lg font-semibold text-zinc-900">Dados pessoais</h2>
+        <p className="mt-1 text-sm text-zinc-600">
+          Atualize suas informações de contato para receber notificações e confirmações de agendamento sem atrasos.
+        </p>
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        {(
-          [
-            ['name', 'Nome'],
-            ['email', 'E-mail'],
-            ['phone', 'Telefone'],
-            ['zipCode', 'CEP'],
-            ['address', 'Endereço'],
-            ['city', 'Cidade'],
-            ['state', 'UF'],
-          ] as [keyof UserDoc, string][]
-        ).map(([key, label]) => (
-          <div key={key} className="card p-3">
-            <label className="label">{label}</label>
-            <input
-              className="input"
-              value={String(doc[key] || '')}
-              onChange={(e) => setDoc((s) => ({ ...s, [key]: e.target.value }))}
-            />
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          {(
+            [
+              ['name', 'Nome'],
+              ['email', 'E-mail'],
+              ['phone', 'Telefone'],
+              ['zipCode', 'CEP'],
+              ['address', 'Endereço'],
+              ['city', 'Cidade'],
+              ['state', 'UF'],
+            ] as [keyof UserDoc, string][]
+          ).map(([key, label]) => (
+            <div key={key} className="space-y-2 rounded-2xl border border-white/70 bg-white/80 p-4">
+              <label className="text-xs font-semibold uppercase tracking-wide text-emerald-600">{label}</label>
+              <input
+                className="input"
+                value={String(doc[key] || '')}
+                onChange={(e) => setDoc((s) => ({ ...s, [key]: e.target.value }))}
+              />
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="rounded-3xl border border-white/70 bg-white/90 p-6 shadow-sm">
+        <h2 className="text-lg font-semibold text-zinc-900">Informações do plano</h2>
+        <div className="mt-3 grid gap-4 sm:grid-cols-2">
+          <div className="rounded-2xl border border-white/70 bg-white/80 p-4 text-sm">
+            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">CPF</p>
+            <p className="mt-1 font-mono text-sm text-zinc-700">{doc.cpf || '—'}</p>
           </div>
-        ))}
-      </div>
-
-      <div className="card p-3 text-sm">
-        <p>
-          CPF: <span className="font-mono">{doc.cpf || '—'}</span>
+          <div className="rounded-2xl border border-white/70 bg-white/80 p-4 text-sm">
+            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">Beneficiário Rapidoc</p>
+            <p className="mt-1 font-mono text-sm text-zinc-700">{doc.beneficiaryUuid || '—'}</p>
+          </div>
+          <div className="rounded-2xl border border-white/70 bg-white/80 p-4 text-sm">
+            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">E-mail do login</p>
+            <p className="mt-1 font-mono text-sm text-zinc-700">{user?.email || '—'}</p>
+          </div>
+        </div>
+        <p className="mt-3 text-xs text-zinc-500">
+          Alterações no CPF ou no beneficiário devem ser solicitadas à equipe administrativa pela central Rapidoc.
         </p>
-        <p>
-          Beneficiário UUID: <span className="font-mono">{doc.beneficiaryUuid || '—'}</span>
-        </p>
-        <p>
-          E-mail do login: <span className="font-mono">{user?.email || '—'}</span>
-        </p>
-      </div>
+      </section>
 
       {err && <p className="text-sm text-red-600">{err}</p>}
       {ok && <p className="text-sm text-emerald-700">{ok}</p>}
 
-      <button onClick={update} disabled={loading} className="btn-primary disabled:opacity-60">
+      <button onClick={update} disabled={loading} className="inline-flex items-center justify-center rounded-full bg-emerald-600 px-6 py-2 text-sm font-semibold text-white shadow transition hover:bg-emerald-700 disabled:opacity-60">
         {loading ? 'Salvando…' : 'Salvar alterações'}
       </button>
     </div>

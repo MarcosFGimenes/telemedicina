@@ -1,10 +1,11 @@
 'use client';
-import { FormEvent, useEffect, useState } from 'react';
+
+import { FormEvent, Suspense, useEffect, useState } from 'react';
 import { auth as getAuth } from '@/lib/firebaseClient';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { useRouter, useSearchParams } from 'next/navigation';
 
-export default function LoginPage() {
+function LoginContent() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [err, setErr] = useState('');
@@ -103,5 +104,13 @@ export default function LoginPage() {
         </div>
       </form>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="py-10 text-center text-sm text-zinc-500">Carregando formulário…</div>}>
+      <LoginContent />
+    </Suspense>
   );
 }
