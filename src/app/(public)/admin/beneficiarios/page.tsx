@@ -1,4 +1,5 @@
 'use client';
+
 import axios from 'axios';
 import { useState } from 'react';
 
@@ -6,8 +7,11 @@ type BeneficiaryData = {
   uuid?: string;
   id?: string;
   beneficiaryUuid?: string;
+  status?: string;
   [key: string]: unknown;
 };
+
+type ActionResult = BeneficiaryData | BeneficiaryData[] | null;
 
 const extractBeneficiaryId = (payload: any): string | undefined => {
   if (!payload) {
@@ -31,20 +35,21 @@ const extractBeneficiaryId = (payload: any): string | undefined => {
 };
 
 export default function AdminBeneficiariosPage() {
-  const [cpf, setCpf] = useState("");
-  const [data, setData] = useState<BeneficiaryData | BeneficiaryData[] | null>(null);
-  const [err, setErr] = useState("");
+  const [cpf, setCpf] = useState('');
+  const [data, setData] = useState<ActionResult>(null);
+  const [err, setErr] = useState('');
   const [loading, setLoading] = useState(false);
-  const [beneficiaryId, setBeneficiaryId] = useState("");
+  const [beneficiaryId, setBeneficiaryId] = useState('');
 
   const buscar = async () => {
     if (!cpf) {
+      setErr('Informe um CPF para consulta.');
       return;
     }
 
-    setErr("");
+    setErr('');
     setData(null);
-    setBeneficiaryId("");
+    setBeneficiaryId('');
     setLoading(true);
 
     try {
@@ -60,7 +65,7 @@ export default function AdminBeneficiariosPage() {
         e?.response?.data?.backend ||
           e?.response?.data?.message ||
           e?.message ||
-          "Erro ao buscar cpf"
+          'Erro ao buscar CPF',
       );
     } finally {
       setLoading(false);
@@ -69,83 +74,116 @@ export default function AdminBeneficiariosPage() {
 
   const inativar = async () => {
     if (!beneficiaryId) {
+      setErr('Selecione um beneficiário para inativar.');
       return;
     }
 
-    setErr("");
+    setErr('');
 
     try {
       await axios.delete(`/api/rapidoc/beneficiaries/${beneficiaryId}/inactive`);
-      alert('Beneficiario inativado com sucesso');
+      alert('Beneficiário inativado com sucesso');
+      await buscar();
     } catch (e: any) {
-      setErr(e?.response?.data?.message || e?.message || "Erro ao inativar");
+      setErr(e?.response?.data?.message || e?.message || 'Erro ao inativar');
     }
   };
 
   const reativar = async () => {
     if (!beneficiaryId) {
+      setErr('Selecione um beneficiário para reativar.');
       return;
     }
 
-    setErr("");
+    setErr('');
 
     try {
       await axios.put(`/api/rapidoc/beneficiaries/${beneficiaryId}/reactivate`, {});
-      alert('Beneficiario reativado com sucesso');
+      alert('Beneficiário reativado com sucesso');
+      await buscar();
     } catch (e: any) {
-      setErr(e?.response?.data?.message || e?.message || "Erro ao reativar");
+      setErr(e?.response?.data?.message || e?.message || 'Erro ao reativar');
     }
   };
 
   return (
-    <div className="space-y-4">
-      <h2 className="text-xl font-semibold">Admin Beneficiarios</h2>
+    <div className="space-y-6">
+      <section className="rounded-3xl border border-white/70 bg-white/90 p-6 shadow-sm">
+        <h2 className="text-lg font-semibold text-zinc-900">Consulta de beneficiários</h2>
+        <p className="mt-1 text-sm text-zinc-600">Busque titulares por CPF, visualize payloads e altere status rapidamente.</p>
 
-      <div className="rounded-lg border bg-white p-3">
-        <label className="mb-1 block text-sm font-medium">CPF</label>
-        <div className="flex gap-2">
-          <input
-            className="w-full rounded-md border px-3 py-2"
-            value={cpf}
-            onChange={(event) => setCpf(event.target.value)}
-            placeholder="Somente numeros"
-          />
-          <button
-            onClick={buscar}
-            disabled={loading}
-            className="rounded-md bg-zinc-900 px-4 py-2 text-white disabled:opacity-60"
-          >
-            {loading ? "Buscando..." : "Buscar"}
-          </button>
+        <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+          <div className="flex-1 space-y-2">
+            <label className="text-xs font-semibold uppercase tracking-wide text-emerald-600">CPF</label>
+            <input
+              className="input"
+              value={cpf}
+              onChange={(event) => setCpf(event.target.value)}
+              placeholder="Somente números"
+            />
+          </div>
+          <div className="flex items-end gap-2">
+            <button
+              onClick={buscar}
+              disabled={loading}
+              className="rounded-full bg-emerald-600 px-5 py-2 text-sm font-semibold text-white shadow transition hover:bg-emerald-700 disabled:opacity-60"
+            >
+              {loading ? 'Buscando…' : 'Buscar'}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setCpf('');
+                setData(null);
+                setBeneficiaryId('');
+                setErr('');
+              }}
+              className="rounded-full border border-emerald-200 px-4 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-50"
+            >
+              Limpar
+            </button>
+          </div>
         </div>
-      </div>
 
-      {beneficiaryId && (
-        <div className="flex items-center gap-2">
-          <span className="text-sm">
-            beneficiaryId: <b>{beneficiaryId}</b>
-          </span>
-          <button
-            onClick={inativar}
-            className="rounded-md bg-red-600 px-3 py-1 text-white"
-          >
-            Inativar
-          </button>
-          <button
-            onClick={reativar}
-            className="rounded-md bg-green-600 px-3 py-1 text-white"
-          >
-            Reativar
-          </button>
-        </div>
-      )}
+        {beneficiaryId && (
+          <div className="mt-4 flex flex-wrap items-center gap-2 text-xs">
+            <span className="rounded-full border border-emerald-200 bg-emerald-50/80 px-3 py-1 font-semibold text-emerald-700">
+              Beneficiário: {beneficiaryId}
+            </span>
+            <button
+              onClick={inativar}
+              className="rounded-full border border-red-200 px-3 py-1 font-semibold text-red-600 transition hover:bg-red-50"
+            >
+              Inativar
+            </button>
+            <button
+              onClick={reativar}
+              className="rounded-full border border-emerald-200 px-3 py-1 font-semibold text-emerald-700 transition hover:bg-emerald-50"
+            >
+              Reativar
+            </button>
+          </div>
+        )}
 
-      {err && <p className="text-sm text-red-600">{String(err)}</p>}
+        {err && <p className="mt-3 text-sm text-red-600">{String(err)}</p>}
+      </section>
 
       {data && (
-        <pre className="whitespace-pre-wrap rounded-lg border bg-white p-3 text-xs">
-          {JSON.stringify(data, null, 2)}
-        </pre>
+        <section className="rounded-3xl border border-white/70 bg-white/90 p-6 shadow-sm">
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-emerald-600">Retorno da Rapidoc</h3>
+          <pre className="mt-3 whitespace-pre-wrap break-all rounded-2xl border border-white/60 bg-white/80 p-4 text-[11px] leading-relaxed text-zinc-600">
+            {JSON.stringify(data, null, 2)}
+          </pre>
+        </section>
+      )}
+
+      {!data && !loading && (
+        <section className="rounded-3xl border border-dashed border-emerald-200 bg-emerald-50/40 p-6 text-sm text-emerald-700">
+          <p>
+            Consulte um CPF para visualizar o payload completo, identificar o UUID do beneficiário e executar ações de ativação
+            ou suspensão diretamente pela API Rapidoc.
+          </p>
+        </section>
       )}
     </div>
   );
