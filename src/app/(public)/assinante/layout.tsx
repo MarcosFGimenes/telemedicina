@@ -35,11 +35,6 @@ const navLinks: NavLink[] = [
     helper: 'Clínico geral via telemedicina',
   },
   {
-    href: '/assinante/autoatendimento',
-    label: 'Autoatendimento',
-    helper: 'Perfil, plano e consultas',
-  },
-  {
     href: '/assinante/dependentes',
     label: 'Dependentes',
     helper: 'Cadastre e acompanhe seus vínculos',
