@@ -206,6 +206,16 @@ export default function AutoatendimentoPage() {
       };
       const { data } = await axios.put(`/api/rapidoc/beneficiaries/${beneficiaryUuid}`, payload);
       setBeneficiary({ ...beneficiary, ...(data || {}) });
+      // Sincroniza planName/serviceType no usuário local para refletir no resumo do plano e agendamento
+      try {
+        if (token) {
+          await fetch('/api/me/plan', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ serviceType: form.serviceType, paymentType: form.paymentType }),
+          });
+        }
+      } catch {}
     } catch (e: any) {
       setError(e?.response?.data?.message || e?.message || 'Falha ao atualizar dados');
     }
@@ -401,4 +411,3 @@ export default function AutoatendimentoPage() {
     </div>
   );
 }
-

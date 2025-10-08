@@ -249,6 +249,28 @@ export default function AssinanteAgendamentosPage() {
         });
         setPatients(opts);
         if (opts.length) setBeneficiaryUuid(opts[0].uuid);
+
+        // Refina o nome do plano a partir do serviceType atual da Rapidoc do titular, se disponível
+        const primaryUuid = me?.beneficiaryUuid ? String(me.beneficiaryUuid) : '';
+        if (primaryUuid) {
+          try {
+            const { data: b } = await axios.get(`/api/rapidoc/beneficiaries/${primaryUuid}`);
+            const st = String(b?.serviceType || '').toUpperCase();
+            const derived =
+              st === 'G'
+                ? 'Generalista'
+                : st === 'P'
+                ? 'Psicologia'
+                : st === 'GP'
+                ? 'Generalista + Psicologia'
+                : st === 'GS'
+                ? 'Generalista + Especialistas'
+                : st === 'GSP'
+                ? 'Generalista + Especialistas + Psicologia'
+                : '';
+            if (derived) setPlanName(derived);
+          } catch {}
+        }
       } catch {
         setPlanName('');
         setHasPlusPlan(false);

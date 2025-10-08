@@ -79,7 +79,10 @@ export async function rapidocFindByCpf(cpf: string): Promise<RapidocRecord | nul
   if (!clean) {
     return null;
   }
-  const { data } = await rapidoc.get('/beneficiaries', { params: { cpf: clean } });
+  // Endpoint v2 por CPF via path param
+  const { data } = await rapidoc.get(`/beneficiaries/${clean}`);
+  if (isRecord(data)) return data;
+  // fallback para listagem com filtro, caso ambiente retorne envelope diferente
   const list = extractList(data);
   const found = matchByCpf(list, clean);
   return found ?? null;

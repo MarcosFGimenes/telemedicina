@@ -1,8 +1,4 @@
-﻿import axios, {
-  AxiosError,
-  AxiosRequestConfig,
-  AxiosResponse,
-} from 'axios';
+﻿import axios, { AxiosError, AxiosRequestConfig, AxiosResponse } from 'axios';
 
 export const sanitizeCPF = (cpf: string) => cpf.replace(/\D/g, '');
 
@@ -58,7 +54,7 @@ const buildUrl = (config: AxiosRequestConfig, fallbackBase: string) => {
 
 const maskUrl = (value: string) => value.replace(/\d{5,}/g, '*********');
 
-const truncate = (value: string) => (value.length <= 8 ? value : `${value.slice(0, 8)}…`);
+const truncate = (value: string) => (value.length <= 8 ? value : `${value.slice(0, 8)}...`);
 
 const sanitizeHeadersForLog = (headers: Record<string, unknown>) => {
   const sanitized: Record<string, string> = {};
@@ -67,17 +63,18 @@ const sanitizeHeadersForLog = (headers: Record<string, unknown>) => {
       return;
     }
     const value = String(rawValue);
-    if (key.toLowerCase() === 'authorization') {
+    const lower = key.toLowerCase();
+    if (lower === 'authorization') {
       sanitized[key] = value.startsWith('Bearer ')
         ? `Bearer ${truncate(value.slice(7))}`
         : truncate(value);
       return;
     }
-    if (key.toLowerCase().includes('token')) {
+    if (lower.includes('token')) {
       sanitized[key] = truncate(value);
       return;
     }
-    sanitized[key] = value.length > 64 ? `${value.slice(0, 32)}…` : value;
+    sanitized[key] = value.length > 64 ? `${value.slice(0, 32)}...` : value;
   });
   return sanitized;
 };
@@ -97,7 +94,7 @@ const stringifyBody = (data: unknown) => {
     }
   }
   if (serialized.length > MAX_LOG_BODY) {
-    return `${serialized.slice(0, MAX_LOG_BODY)}…`;
+    return `${serialized.slice(0, MAX_LOG_BODY)}...`;
   }
   return serialized;
 };
@@ -120,9 +117,9 @@ rapidoc.interceptors.request.use((config) => {
     ...(config.headers ? (typeof config.headers === 'object' ? config.headers : {}) : {}),
   };
 
-  delete existingHeaders.access_token;
-  delete existingHeaders['access-token'];
-  delete existingHeaders.AccessToken;
+  delete (existingHeaders as any).access_token;
+  delete (existingHeaders as any)['access-token'];
+  delete (existingHeaders as any).AccessToken;
 
   const hasCustomContentType = Object.keys(existingHeaders).some(
     (key) => key.toLowerCase() === 'content-type',
@@ -140,7 +137,8 @@ rapidoc.interceptors.request.use((config) => {
     mergedHeaders.Authorization = `Bearer ${token}`;
   }
 
-  if (!['GET', 'DELETE'].includes(method) && !hasCustomContentType) {
+  // Always set Rapidoc content type unless caller provided one
+  if (!hasCustomContentType) {
     mergedHeaders['Content-Type'] = 'application/vnd.rapidoc.tema-v2+json';
   }
 
@@ -150,11 +148,6 @@ rapidoc.interceptors.request.use((config) => {
     }
     mergedHeaders[key] = String(value);
   });
-
-  if (method === 'GET' || method === 'DELETE') {
-    delete mergedHeaders['Content-Type'];
-    delete mergedHeaders['content-type'];
-  }
 
   config.headers = mergedHeaders;
 
@@ -198,3 +191,5 @@ rapidoc.interceptors.response.use(
 );
 
 export default rapidoc;
+
+
