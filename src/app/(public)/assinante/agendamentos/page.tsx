@@ -5,7 +5,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { useAuthContext } from '@/components/auth/AuthProvider';
 
 type Specialty = { id?: string; uuid?: string; name?: string; [key: string]: unknown };
-type Availability = Record<string, unknown>;
 type AppointmentResp = { uuid?: string; id?: string; [key: string]: unknown };
 
 type SlotOption = {
@@ -181,17 +180,48 @@ const extractPlanInfo = (user: unknown): { planName: string; isPlus: boolean } =
   return { planName, isPlus };
 };
 
+const serviceTypeLabel = (value?: string) => {
+  switch ((value || '').toUpperCase()) {
+    case 'G':
+      return 'Generalista';
+    case 'P':
+      return 'Psicologia';
+    case 'GP':
+      return 'Generalista + Psicologia';
+    case 'GS':
+      return 'Generalista + Especialistas';
+    case 'GSP':
+      return 'Generalista + Especialistas + Psicologia';
+    default:
+      return '';
+  }
+};
+
+const messageFromAxiosError = (error: unknown, fallback: string) => {
+  if (!axios.isAxiosError(error)) {
+    return fallback;
+  }
+  const payload = asRecord(error.response?.data);
+  const backend = payload ? asRecord(payload['backend']) : null;
+  return (
+    stringFrom(backend?.['message']) ||
+    stringFrom(payload?.['message']) ||
+    stringFrom(payload?.['error']) ||
+    error.message ||
+    fallback
+  );
+};
+
 export default function AssinanteAgendamentosPage() {
   const { token } = useAuthContext();
   const [loading, setLoading] = useState(false);
   const [specs, setSpecs] = useState<Specialty[]>([]);
   const [specId, setSpecId] = useState('');
-  const [disp, setDisp] = useState<Availability[]>([]);
+  const [disp, setDisp] = useState<unknown[]>([]);
   const [slotId, setSlotId] = useState('');
   const [beneficiaryUuid, setBeneficiaryUuid] = useState('');
   const [patients, setPatients] = useState<{ uuid: string; label: string }[]>([]);
   const [planName, setPlanName] = useState('');
-  const [hasPlusPlan, setHasPlusPlan] = useState(false);
   const [dateInitial, setDateInitial] = useState<string>('');
   const [dateFinal, setDateFinal] = useState<string>('');
   const [result, setResult] = useState<unknown>(null);
@@ -200,6 +230,9 @@ export default function AssinanteAgendamentosPage() {
   const [selectedReferralId, setSelectedReferralId] = useState('');
   const [loadingReferrals, setLoadingReferrals] = useState(false);
   const [referralsError, setReferralsError] = useState('');
+  const [beneficiarySnapshot, setBeneficiarySnapshot] = useState<Record<string, unknown> | null>(null);
+  const [loadingBeneficiarySnapshot, setLoadingBeneficiarySnapshot] = useState(false);
+  const [beneficiarySnapshotError, setBeneficiarySnapshotError] = useState('');
 
   useEffect(() => {
     const loadSpecs = async () => {
@@ -207,13 +240,8 @@ export default function AssinanteAgendamentosPage() {
         setError('');
         const { data } = await axios.get('/api/rapidoc/especialidades');
         setSpecs(Array.isArray(data) ? data : []);
-      } catch (e: any) {
-        setError(
-          e?.response?.data?.backend?.message ||
-            e?.response?.data?.message ||
-            e?.message ||
-            'Erro ao listar especialidades',
-        );
+      } catch (error: unknown) {
+        setError(messageFromAxiosError(error, 'Erro ao listar especialidades'));
       }
     };
 
@@ -226,7 +254,6 @@ export default function AssinanteAgendamentosPage() {
         setPatients([]);
         setBeneficiaryUuid('');
         setPlanName('');
-        setHasPlusPlan(false);
         return;
       }
       try {
@@ -238,14 +265,20 @@ export default function AssinanteAgendamentosPage() {
         const me = meRes?.data?.user || {};
         const planInfo = extractPlanInfo(meRes?.data?.user);
         setPlanName(planInfo.planName);
-        setHasPlusPlan(planInfo.isPlus);
         if (me?.beneficiaryUuid) {
           opts.push({ uuid: String(me.beneficiaryUuid), label: me?.name ? `${me.name} (Titular)` : 'Titular' });
         }
-        const deps = Array.isArray(depRes?.data?.dependents) ? depRes.data.dependents : [];
-        deps.forEach((d: any) => {
-          if (d?.uuid)
-            opts.push({ uuid: String(d.uuid), label: d?.name ? String(d.name) : `Dependente ${String(d.uuid).slice(0, 6)}…` });
+        const depsRaw = Array.isArray(depRes?.data?.dependents)
+          ? (depRes.data.dependents as unknown[])
+          : [];
+        depsRaw.forEach((raw) => {
+          const dep = asRecord(raw);
+          if (!dep) return;
+          const uuidValue = stringFrom(dep['uuid']);
+          if (!uuidValue) return;
+          const displayName = stringFrom(dep['name']);
+          const shortId = uuidValue.length > 6 ? `${uuidValue.slice(0, 6)}…` : uuidValue;
+          opts.push({ uuid: uuidValue, label: displayName ? displayName : `Dependente ${shortId}` });
         });
         setPatients(opts);
         if (opts.length) setBeneficiaryUuid(opts[0].uuid);
@@ -255,29 +288,61 @@ export default function AssinanteAgendamentosPage() {
         if (primaryUuid) {
           try {
             const { data: b } = await axios.get(`/api/rapidoc/beneficiaries/${primaryUuid}`);
-            const st = String(b?.serviceType || '').toUpperCase();
-            const derived =
-              st === 'G'
-                ? 'Generalista'
-                : st === 'P'
-                ? 'Psicologia'
-                : st === 'GP'
-                ? 'Generalista + Psicologia'
-                : st === 'GS'
-                ? 'Generalista + Especialistas'
-                : st === 'GSP'
-                ? 'Generalista + Especialistas + Psicologia'
-                : '';
+            const st = String((b as Record<string, unknown> | null)?.['serviceType'] || '').toUpperCase();
+            const derived = serviceTypeLabel(st);
             if (derived) setPlanName(derived);
-          } catch {}
-        }
-      } catch {
+          } catch (error: unknown) {
+            console.info('[agendamentos] falha ao refinar plano do titular', error);
+          }
+      }
+      } catch (error: unknown) {
+        console.warn('[agendamentos] falha ao carregar titulares/dependentes', error);
         setPlanName('');
-        setHasPlusPlan(false);
       }
     };
     loadPatients();
   }, [token]);
+
+  useEffect(() => {
+    if (!beneficiaryUuid) {
+      setBeneficiarySnapshot(null);
+      setBeneficiarySnapshotError('');
+      return;
+    }
+
+    let active = true;
+    const loadSnapshot = async () => {
+      try {
+        setLoadingBeneficiarySnapshot(true);
+        setBeneficiarySnapshotError('');
+        const { data } = await axios.get(`/api/rapidoc/beneficiaries/${beneficiaryUuid}`);
+        if (!active) return;
+        const container = asRecord(data);
+        const record = container || (container && asRecord(container['beneficiary'])) || null;
+        setBeneficiarySnapshot(record);
+        if (record) {
+          const info = extractPlanInfo(record);
+          if (info.planName) setPlanName(info.planName);
+        }
+      } catch (error: unknown) {
+        if (!active) return;
+        setBeneficiarySnapshot(null);
+        setBeneficiarySnapshotError(
+          messageFromAxiosError(error, 'Falha ao carregar informações do beneficiário na Rapidoc.'),
+        );
+      } finally {
+        if (active) {
+          setLoadingBeneficiarySnapshot(false);
+        }
+      }
+    };
+
+    loadSnapshot();
+
+    return () => {
+      active = false;
+    };
+  }, [beneficiaryUuid]);
 
   const onSelectSpec = async (id: string) => {
     setSpecId(id);
@@ -313,19 +378,14 @@ export default function AssinanteAgendamentosPage() {
       });
 
       if (Array.isArray(data)) {
-        setDisp(data as Availability[]);
-      } else if (Array.isArray(data?.data)) {
-        setDisp(data.data as Availability[]);
+        setDisp(data);
       } else {
-        setDisp([]);
+        const container = asRecord(data);
+        const inner = container && Array.isArray(container['data']) ? (container['data'] as unknown[]) : [];
+        setDisp(inner);
       }
-    } catch (e: any) {
-      setError(
-        e?.response?.data?.message ||
-          e?.response?.data?.backend?.message ||
-          e?.message ||
-          'Erro ao listar disponibilidade',
-      );
+    } catch (error: unknown) {
+      setError(messageFromAxiosError(error, 'Erro ao listar disponibilidade'));
     }
   };
 
@@ -353,14 +413,11 @@ export default function AssinanteAgendamentosPage() {
         if (!active) return;
         const items = parseReferrals(data);
         setReferrals(items);
-      } catch (e: any) {
+      } catch (error: unknown) {
         if (!active) return;
         setReferrals([]);
         setReferralsError(
-          e?.response?.data?.message ||
-            e?.response?.data?.error ||
-            e?.message ||
-            'Falha ao carregar encaminhamentos do beneficiário.',
+          messageFromAxiosError(error, 'Falha ao carregar encaminhamentos do beneficiário.'),
         );
       } finally {
         if (active) {
@@ -377,19 +434,26 @@ export default function AssinanteAgendamentosPage() {
     };
   }, [beneficiaryUuid]);
 
-  const computeSlotId = (entry: any): string | undefined => {
-    if (!entry) {
+  const computeSlotId = (entry: unknown): string | undefined => {
+    const record = asRecord(entry);
+    if (!record) {
       return undefined;
     }
 
-    return entry.id ?? entry.uuid ?? entry.slotId ?? entry.code;
+    return (
+      stringFrom(record['id']) ||
+      stringFrom(record['uuid']) ||
+      stringFrom(record['slotId']) ||
+      stringFrom(record['code']) ||
+      undefined
+    );
   };
 
   const currentSpec = useMemo<Specialty | null>(() => {
     if (!specId) return null;
     return (
       specs.find((spec, index) => {
-        const id = spec.id ?? spec.uuid ?? (spec as any)?.code ?? index;
+        const id = spec.id ?? spec.uuid ?? stringFrom(spec?.['code']) ?? index;
         return String(id) === String(specId);
       }) || null
     );
@@ -455,6 +519,41 @@ export default function AssinanteAgendamentosPage() {
     return { label: parts.join(' • '), raw: selectedReferral.raw };
   }, [selectedReferral]);
 
+  const beneficiaryPlanSummary = useMemo(() => {
+    if (!beneficiarySnapshot) return null;
+    const serviceType = stringFrom(beneficiarySnapshot['serviceType']);
+    const paymentType = stringFrom(beneficiarySnapshot['paymentType']);
+    const status = stringFrom(beneficiarySnapshot['status']);
+    const name = stringFrom(beneficiarySnapshot['name']);
+    const uuid = stringFrom(beneficiarySnapshot['uuid']) || stringFrom(beneficiarySnapshot['id']) || '';
+    const planLabel = serviceTypeLabel(serviceType) || planName;
+    const url =
+      stringFrom(beneficiarySnapshot['beneficiaryUrl']) ||
+      stringFrom(beneficiarySnapshot['url']) ||
+      stringFrom(beneficiarySnapshot['portalUrl']) ||
+      '';
+
+    const normalizedPayment = paymentType ? paymentType.toUpperCase() : '';
+    const paymentLabel =
+      normalizedPayment === 'A'
+        ? 'Anual'
+        : normalizedPayment === 'S'
+        ? 'Mensal'
+        : normalizedPayment || '';
+
+    return {
+      name,
+      status,
+      statusLabel: status ? status.toUpperCase() : '',
+      planLabel,
+      serviceType,
+      paymentType: normalizedPayment,
+      paymentLabel,
+      url,
+      uuid,
+    };
+  }, [beneficiarySnapshot, planName]);
+
   const canConfirm = Boolean(
     beneficiaryUuid &&
       specId &&
@@ -465,30 +564,45 @@ export default function AssinanteAgendamentosPage() {
   const allSlots = useMemo<SlotOption[]>(() => {
     const rows: SlotOption[] = [];
 
-    (disp as any[]).forEach((item) => {
-      if (!item) {
+    const pushSlot = (
+      slot: unknown,
+      index: number,
+      parent: Record<string, unknown> | null,
+    ) => {
+      const slotRecord = asRecord(slot);
+      if (!slotRecord) {
+        return;
+      }
+      const id = computeSlotId(slotRecord);
+      if (!id) {
         return;
       }
 
-      const maybeArray = Array.isArray(item?.slots)
-        ? item.slots
-        : Array.isArray(item)
-        ? item
-        : [];
+      const date =
+        stringFrom(slotRecord['date']) ||
+        stringFrom(slotRecord['day']) ||
+        (parent ? stringFrom(parent['date']) : undefined);
+      const from = stringFrom(slotRecord['from']) || stringFrom(slotRecord['start']) || stringFrom(slotRecord['time']);
+      const to = stringFrom(slotRecord['to']) || stringFrom(slotRecord['end']);
+      const base = [date, from && to ? `${from}-${to}` : from].filter(Boolean).join(' ');
+      const label = base || stringFrom(slotRecord['label']) || `Slot ${index + 1}`;
+      rows.push({ id, label: label || `Slot ${index + 1}`, raw: slotRecord });
+    };
 
-      (maybeArray as any[]).forEach((slot, index) => {
-        const id = computeSlotId(slot);
-        if (!id) {
-          return;
-        }
-
-        const date = slot?.date || slot?.day || (item as any)?.date;
-        const from = slot?.from || slot?.start || slot?.time;
-        const to = slot?.to || slot?.end;
-        const base = [date, from && to ? `${from}-${to}` : from].filter(Boolean).join(' ');
-        const label = base || slot?.label || `Slot ${index + 1}`;
-        rows.push({ id: String(id), label: String(label), raw: slot as Record<string, unknown> });
-      });
+    disp.forEach((entry) => {
+      if (Array.isArray(entry)) {
+        entry.forEach((slot, index) => pushSlot(slot, index, null));
+        return;
+      }
+      const record = asRecord(entry);
+      if (!record) {
+        return;
+      }
+      if (Array.isArray(record['slots'])) {
+        (record['slots'] as unknown[]).forEach((slot, index) => pushSlot(slot, index, record));
+      } else {
+        pushSlot(record, 0, record);
+      }
     });
 
     return rows;
@@ -500,6 +614,25 @@ export default function AssinanteAgendamentosPage() {
     if (!option) return null;
     return { label: option.label, raw: option.raw };
   }, [slotId, allSlots]);
+
+  const meetingUrl = useMemo(() => {
+    const record = asRecord(result);
+    if (!record) return '';
+    return (
+      stringFrom(record['beneficiaryUrl']) ||
+      stringFrom(record['url']) ||
+      stringFrom(record['meetingUrl']) ||
+      stringFrom(record['redirectUrl']) ||
+      ''
+    );
+  }, [result]);
+
+  useEffect(() => {
+    if (!beneficiaryPlanSummary?.planLabel) return;
+    if (beneficiaryPlanSummary.planLabel !== planName) {
+      setPlanName(beneficiaryPlanSummary.planLabel);
+    }
+  }, [beneficiaryPlanSummary?.planLabel, planName]);
 
   const createAppointment = async () => {
     if (!beneficiaryUuid || !specId || !slotId) {
@@ -524,14 +657,14 @@ export default function AssinanteAgendamentosPage() {
       };
 
       if (selectedReferral) {
-        const rawReferral = asRecord(selectedReferral.raw) || {};
+        const rawReferral = asRecord(selectedReferral.raw);
         const referralUuid =
-          stringFrom(rawReferral['uuid']) ||
-          stringFrom(rawReferral['id']) ||
-          stringFrom(rawReferral['referralUuid']) ||
-          stringFrom(rawReferral['referralId']) ||
+          stringFrom(rawReferral?.['uuid']) ||
+          stringFrom(rawReferral?.['id']) ||
+          stringFrom(rawReferral?.['referralUuid']) ||
+          stringFrom(rawReferral?.['referralId']) ||
           selectedReferral.id;
-        const referralId = stringFrom(rawReferral['id']) || selectedReferral.id;
+        const referralId = stringFrom(rawReferral?.['id']) || selectedReferral.id;
         payload.referralUuid = referralUuid;
         payload.referralId = referralId;
       }
@@ -539,13 +672,8 @@ export default function AssinanteAgendamentosPage() {
       const { data } = await axios.post<AppointmentResp>('/api/rapidoc/agendamentos', payload);
 
       setResult(data);
-    } catch (e: any) {
-      setError(
-        e?.response?.data?.backend ||
-          e?.response?.data?.message ||
-          e?.message ||
-          'Erro ao agendar',
-      );
+    } catch (error: unknown) {
+      setError(messageFromAxiosError(error, 'Erro ao agendar'));
     } finally {
       setLoading(false);
     }
@@ -576,6 +704,41 @@ export default function AssinanteAgendamentosPage() {
                 Plano atual:{' '}
                 <span className="font-medium text-emerald-700">{planName || 'Não identificado'}</span>
               </p>
+              {loadingBeneficiarySnapshot && (
+                <p className="mt-2 text-xs text-zinc-500">Sincronizando informações do plano na Rapidoc…</p>
+              )}
+              {beneficiarySnapshotError && (
+                <p className="mt-2 text-xs text-red-600">{beneficiarySnapshotError}</p>
+              )}
+              {beneficiaryPlanSummary && !beneficiarySnapshotError && (
+                <div className="mt-3 space-y-1 rounded-xl border border-emerald-100 bg-emerald-50/80 p-3 text-xs text-emerald-700">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide">Resumo Rapidoc</p>
+                  {beneficiaryPlanSummary.name && (
+                    <p className="text-sm font-semibold text-emerald-800">{beneficiaryPlanSummary.name}</p>
+                  )}
+                  {beneficiaryPlanSummary.planLabel && (
+                    <p>
+                      Plano: <strong>{beneficiaryPlanSummary.planLabel}</strong>
+                    </p>
+                  )}
+                  {beneficiaryPlanSummary.paymentLabel && (
+                    <p>Pagamento: {beneficiaryPlanSummary.paymentLabel}</p>
+                  )}
+                  {beneficiaryPlanSummary.statusLabel && (
+                    <p>Status: {beneficiaryPlanSummary.statusLabel}</p>
+                  )}
+                  {beneficiaryPlanSummary.url && (
+                    <a
+                      href={beneficiaryPlanSummary.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-emerald-700 underline-offset-2 hover:underline"
+                    >
+                      Abrir portal da consulta
+                    </a>
+                  )}
+                </div>
+              )}
               {!patients.length && (
                 <p className="mt-1 text-xs text-zinc-500">
                   Cadastre seu titular ou dependente em <strong>Dependentes</strong> antes de seguir com o agendamento.
@@ -754,8 +917,8 @@ export default function AssinanteAgendamentosPage() {
                 } else {
                   setResult(data);
                 }
-              } catch (e: any) {
-                setError(e?.response?.data?.message || e?.message || 'Falha ao solicitar atendimento imediato');
+              } catch (error: unknown) {
+                setError(messageFromAxiosError(error, 'Falha ao solicitar atendimento imediato'));
               }
             }}
             className="inline-flex items-center justify-center rounded-full border border-emerald-600 px-6 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50"
@@ -766,6 +929,23 @@ export default function AssinanteAgendamentosPage() {
         </div>
 
         {error && <p className="mt-3 text-sm text-red-600">{String(error)}</p>}
+
+        {meetingUrl && (
+          <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50/80 p-4 text-sm text-emerald-700">
+            <p className="text-sm font-semibold text-emerald-800">Consulta confirmada!</p>
+            <p className="mt-1 text-xs text-emerald-700">
+              Acesse a sala virtual diretamente pelo link a seguir. Ele também está disponível na Rapidoc para futuras consultas.
+            </p>
+            <a
+              href={meetingUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-3 inline-flex items-center gap-2 rounded-full bg-emerald-600 px-4 py-2 text-xs font-semibold text-white shadow hover:bg-emerald-700"
+            >
+              Abrir consulta na Rapidoc
+            </a>
+          </div>
+        )}
 
         {result && (
           <details className="mt-4 rounded-2xl border border-white/70 bg-white/80 p-4 text-xs text-zinc-600">
