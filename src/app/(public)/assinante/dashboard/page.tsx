@@ -20,6 +20,9 @@ type MeResponse = {
     beneficiaryUuid?: string;
     status?: string;
     planName?: string;
+    serviceType?: string;
+    paymentType?: string;
+    cpf?: string;
   };
   payments?: Payment[];
 };
@@ -29,6 +32,15 @@ type Dependent = { uuid: string; name?: string; status?: string };
 type Snapshot = {
   me: MeResponse | null;
   dependents: Dependent[];
+};
+
+type Beneficiary = {
+  uuid?: string;
+  id?: string;
+  status?: string;
+  serviceType?: string;
+  paymentType?: string;
+  specialties?: { uuid?: string; name?: string }[];
 };
 
 const formatCurrency = (value?: number) => {
@@ -54,6 +66,9 @@ export default function AssinanteDashboard() {
   const [data, setData] = useState<Snapshot>({ me: null, dependents: [] });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [beneficiary, setBeneficiary] = useState<Beneficiary | null>(null);
+  const [beneficiaryLoading, setBeneficiaryLoading] = useState(false);
+  const [beneficiaryError, setBeneficiaryError] = useState('');
 
   useEffect(() => {
     const load = async () => {
@@ -88,13 +103,50 @@ export default function AssinanteDashboard() {
     load();
   }, [token]);
 
-  const status = data.me?.user?.status ? String(data.me.user.status).toUpperCase() : 'PENDENTE';
-  const beneficiaryUuid = data.me?.user?.beneficiaryUuid ?? '';
-  const planName = useMemo(() => {
-    const raw = data.me?.user?.planName as string | undefined;
-    if (raw) return raw;
-    const st = String((data.me?.user as any)?.serviceType || '').toUpperCase();
-    switch (st) {
+  useEffect(() => {
+    const uuid = data.me?.user?.beneficiaryUuid;
+    const cpf = data.me?.user?.cpf;
+    if (!uuid && !cpf) {
+      setBeneficiary(null);
+      setBeneficiaryError('');
+      return;
+    }
+
+    let active = true;
+    const load = async () => {
+      try {
+        setBeneficiaryLoading(true);
+        setBeneficiaryError('');
+        const url = uuid ? `/api/rapidoc/beneficiaries/${uuid}` : `/api/rapidoc/beneficiaries/cpf/${cpf}`;
+        const res = await fetch(url);
+        const json = await res.json().catch(() => null);
+        if (!res.ok) throw new Error((json as any)?.message || (json as any)?.error || 'Falha ao consultar plano atual.');
+        if (!active) return;
+        setBeneficiary((json || null) as Beneficiary | null);
+      } catch (err: any) {
+        if (!active) return;
+        setBeneficiary(null);
+        setBeneficiaryError(err?.message || 'Não foi possível consultar o plano atual.');
+      } finally {
+        if (active) setBeneficiaryLoading(false);
+      }
+    };
+
+    load();
+    return () => {
+      active = false;
+    };
+  }, [data.me?.user?.beneficiaryUuid, data.me?.user?.cpf]);
+
+  const status = beneficiary?.status
+    ? String(beneficiary.status).toUpperCase()
+    : data.me?.user?.status
+    ? String(data.me.user.status).toUpperCase()
+    : 'PENDENTE';
+  const beneficiaryUuid = beneficiary?.uuid || beneficiary?.id || data.me?.user?.beneficiaryUuid || '';
+
+  const mapServiceType = (value?: string) => {
+    switch ((value || '').toUpperCase()) {
       case 'G':
         return 'Generalista';
       case 'P':
@@ -108,7 +160,24 @@ export default function AssinanteDashboard() {
       default:
         return 'Plano não identificado';
     }
-  }, [data.me?.user]);;
+  };
+
+  const planName = useMemo(() => {
+    if (beneficiary?.serviceType) return mapServiceType(beneficiary.serviceType);
+    const raw = data.me?.user?.planName as string | undefined;
+    if (raw) return raw;
+    const st = data.me?.user?.serviceType;
+    if (st) return mapServiceType(st);
+    return 'Plano não identificado';
+  }, [beneficiary?.serviceType, data.me?.user]);
+
+  const planPaymentType = beneficiary?.paymentType || data.me?.user?.paymentType || '—';
+
+  const planSpecialties = useMemo(() => {
+    return (beneficiary?.specialties || [])
+      .map((item) => item?.name)
+      .filter(Boolean) as string[];
+  }, [beneficiary?.specialties]);
 
   const nextPayment = useMemo<Payment | null>(() => {
     const payments = data.me?.payments ?? [];
@@ -129,12 +198,35 @@ export default function AssinanteDashboard() {
           <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">Status do plano</p>
           <h2 className="mt-2 text-2xl font-semibold text-zinc-900">{planName}</h2>
           <p className="mt-4 inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50/80 px-3 py-1 text-xs font-semibold text-emerald-700">
-            <span>{loading ? 'Atualizando…' : status}</span>
+            <span>{beneficiaryLoading || loading ? 'Atualizando…' : status}</span>
           </p>
           <p className="mt-3 text-xs text-zinc-500">
             Titular Rapidoc:{' '}
             <span className="font-mono text-xs">{beneficiaryUuid || 'defina seu beneficiário'}</span>
           </p>
+          <p className="mt-2 text-xs text-zinc-500">
+            Forma de pagamento:{' '}
+            <span className="font-semibold text-emerald-700">{planPaymentType}</span>
+          </p>
+          {beneficiaryError ? (
+            <p className="mt-2 text-xs text-red-600">{beneficiaryError}</p>
+          ) : planSpecialties.length ? (
+            <div className="mt-3 space-y-2 text-xs text-zinc-500">
+              <p className="font-semibold uppercase tracking-wide text-emerald-600">Especialidades disponíveis</p>
+              <div className="flex flex-wrap gap-2">
+                {planSpecialties.map((name) => (
+                  <span
+                    key={name}
+                    className="rounded-full border border-emerald-200 bg-emerald-50/80 px-3 py-1 text-[11px] font-semibold text-emerald-700"
+                  >
+                    {name}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <p className="mt-2 text-xs text-zinc-500">Nenhuma especialidade foi retornada para este beneficiário.</p>
+          )}
         </div>
 
         <div className="rounded-3xl border border-white/70 bg-white/90 p-5 shadow-sm">
