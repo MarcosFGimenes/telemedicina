@@ -1,45 +1,56 @@
+import axios from 'axios';
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/firebaseAdmin';
-import { getBeneficiaryByCPF, sanitizeCPF } from '@/lib/rapidocService';
+
+import rapidoc, { sanitizeCPF } from '@/lib/rapidoc';
+
+const messageFromUpstream = (value: unknown): string | null => {
+  if (!value || typeof value !== 'object') return null;
+  const record = value as Record<string, unknown>;
+  const message = record['message'];
+  return typeof message === 'string' ? message : null;
+};
+
+const jsonError = (
+  hint: string,
+  status: number,
+  message: string,
+  upstream: unknown = null,
+) =>
+  NextResponse.json(
+    {
+      hint,
+      upstreamStatus: status,
+      message,
+      upstream: typeof upstream === 'string' ? upstream : upstream ?? null,
+    },
+    { status },
+  );
 
 export async function GET(
-  _req: NextRequest,
-  ctx: { params: { cpf: string } },
+  _request: NextRequest,
+  ctx: { params: Promise<{ cpf: string }> },
 ) {
+  const { cpf } = await ctx.params;
+  const digits = sanitizeCPF(String(cpf || ''));
+
+  if (!digits) {
+    return jsonError('cpf_missing', 400, 'CPF é obrigatório.');
+  }
+
   try {
-    const raw = ctx?.params?.cpf || '';
-    const cpf = sanitizeCPF(raw);
-    if (!cpf) {
-      return NextResponse.json({ error: 'missing_cpf' }, { status: 400 });
+    const { data } = await rapidoc.get(`/beneficiaries/${digits}`);
+    return NextResponse.json(data);
+  } catch (error) {
+    if (axios.isAxiosError(error)) {
+      const status = error.response?.status && error.response.status !== 200 ? error.response.status : 500;
+      const upstreamStatus = error.response?.status ?? 500;
+      const upstreamData = error.response?.data;
+      const message = messageFromUpstream(upstreamData) || error.message || 'unknown error';
+      return NextResponse.json(
+        { hint: 'rapidoc-beneficiary-cpf-get', upstreamStatus, message, upstream: upstreamData ?? null },
+        { status },
+      );
     }
-
-    // busca na Rapidoc
-    const found = await getBeneficiaryByCPF(cpf);
-
-    // se retornou uuid, vincula automaticamente no user com mesmo CPF
-    const uuid = (found?.uuid as string | undefined) || (found?.id as string | undefined) || '';
-    if (uuid) {
-      try {
-        const users = db.collection('users');
-        const snap = await users.where('cpf', '==', cpf).limit(1).get();
-        if (!snap.empty) {
-          const ref = snap.docs[0].ref;
-          const data = snap.docs[0].data() as Record<string, unknown>;
-          const already = (data?.beneficiaryUuid as string | undefined) || '';
-          if (!already) {
-            await ref.set({ beneficiaryUuid: uuid, status: 'active', updatedAt: new Date() }, { merge: true });
-          }
-        }
-      } catch (e) {
-        console.error('[rapidoc/cpf] failed to link user uuid', cpf, uuid, e);
-      }
-    }
-
-    return NextResponse.json(found);
-  } catch (e: any) {
-    const status = e?.status || e?.response?.status || 500;
-    const message = e?.message || 'failed';
-    return NextResponse.json({ error: message }, { status });
+    return jsonError('rapidoc-beneficiary-cpf-get', 500, 'unknown error');
   }
 }
-
