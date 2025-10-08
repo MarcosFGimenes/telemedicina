@@ -19,6 +19,153 @@ type SelectedSlotSummary = {
   raw?: Record<string, unknown>;
 };
 
+type ReferralOption = {
+  id: string;
+  label: string;
+  specialtyId?: string;
+  specialtyName?: string;
+  expiresAt?: string;
+  raw?: Record<string, unknown>;
+};
+
+type ReferralSummary = {
+  label: string;
+  raw?: Record<string, unknown>;
+};
+
+const asRecord = (value: unknown): Record<string, unknown> | null => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+};
+
+const stringFrom = (value: unknown): string | undefined => {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed ? trimmed : undefined;
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return String(value);
+  }
+  return undefined;
+};
+
+const formatDateLabel = (value?: string): string | null => {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const date = new Date(trimmed);
+  if (!Number.isNaN(date.getTime())) {
+    try {
+      return new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short' }).format(date);
+    } catch {
+      return trimmed;
+    }
+  }
+  return trimmed;
+};
+
+const parseReferrals = (raw: unknown): ReferralOption[] => {
+  const containers: Record<string, unknown>[] = [];
+  const queue: unknown[] = [raw];
+  const keysToExplore = ['data', 'referrals', 'items', 'results'];
+
+  while (queue.length) {
+    const current = queue.shift();
+    if (Array.isArray(current)) {
+      current.forEach((item) => queue.push(item));
+      continue;
+    }
+
+    const record = asRecord(current);
+    if (!record) continue;
+
+    let forwarded = false;
+    keysToExplore.forEach((key) => {
+      if (Object.prototype.hasOwnProperty.call(record, key)) {
+        queue.push(record[key]);
+        forwarded = true;
+      }
+    });
+
+    if (!forwarded) {
+      containers.push(record);
+    }
+  }
+
+  if (!containers.length) {
+    return [];
+  }
+
+  return containers
+    .map((item, index) => {
+      const specialty = asRecord(item.specialty);
+      const id =
+        stringFrom(item.uuid) ||
+        stringFrom(item.id) ||
+        stringFrom(item.referralUuid) ||
+        stringFrom(item.referralId) ||
+        (specialty && stringFrom(specialty.referralUuid)) ||
+        undefined;
+      if (!id) return null;
+
+      const specialtyId =
+        stringFrom(item.specialtyUuid) ||
+        stringFrom(item.specialtyId) ||
+        (specialty && (stringFrom(specialty.uuid) || stringFrom(specialty.id))) ||
+        undefined;
+
+      const specialtyName =
+        stringFrom(item.specialtyName) ||
+        (specialty && (stringFrom(specialty.name) || stringFrom(specialty.description))) ||
+        undefined;
+
+      const status = stringFrom(item.status) || stringFrom(item.situation);
+      const expiresAt =
+        stringFrom(item.expiresAt) ||
+        stringFrom(item.expirationDate) ||
+        stringFrom(item.validUntil) ||
+        undefined;
+
+      const formattedExpiry = formatDateLabel(expiresAt);
+
+      const labelParts = [
+        specialtyName || 'Encaminhamento',
+        status ? `Status: ${status}` : null,
+        formattedExpiry ? `Validade: ${formattedExpiry}` : null,
+      ].filter(Boolean) as string[];
+
+      const label = labelParts.length ? labelParts.join(' • ') : `Encaminhamento ${index + 1}`;
+
+      return {
+        id,
+        label,
+        specialtyId,
+        specialtyName,
+        expiresAt,
+        raw: item,
+      } as ReferralOption;
+    })
+    .filter(Boolean) as ReferralOption[];
+};
+
+const extractPlanInfo = (user: unknown): { planName: string; isPlus: boolean } => {
+  const record = asRecord(user);
+  if (!record) return { planName: '', isPlus: false };
+  const candidates = [
+    stringFrom(record.planName),
+    stringFrom(record.plan),
+    stringFrom(record.planType),
+    stringFrom(record.planTier),
+    stringFrom(record.planCategory),
+    stringFrom(record.productName),
+    stringFrom(record.product),
+    stringFrom(record.planSlug),
+  ].filter(Boolean) as string[];
+  const planName = candidates[0] || '';
+  const isPlus = candidates.some((value) => value.toLowerCase().includes('plus'));
+  return { planName, isPlus };
+};
+
 export default function AssinanteAgendamentosPage() {
   const { token } = useAuthContext();
   const [loading, setLoading] = useState(false);
@@ -28,10 +175,16 @@ export default function AssinanteAgendamentosPage() {
   const [slotId, setSlotId] = useState('');
   const [beneficiaryUuid, setBeneficiaryUuid] = useState('');
   const [patients, setPatients] = useState<{ uuid: string; label: string }[]>([]);
+  const [planName, setPlanName] = useState('');
+  const [hasPlusPlan, setHasPlusPlan] = useState(false);
   const [dateInitial, setDateInitial] = useState<string>('');
   const [dateFinal, setDateFinal] = useState<string>('');
   const [result, setResult] = useState<unknown>(null);
   const [error, setError] = useState('');
+  const [referrals, setReferrals] = useState<ReferralOption[]>([]);
+  const [selectedReferralId, setSelectedReferralId] = useState('');
+  const [loadingReferrals, setLoadingReferrals] = useState(false);
+  const [referralsError, setReferralsError] = useState('');
 
   useEffect(() => {
     const loadSpecs = async () => {
@@ -54,7 +207,13 @@ export default function AssinanteAgendamentosPage() {
 
   useEffect(() => {
     const loadPatients = async () => {
-      if (!token) return;
+      if (!token) {
+        setPatients([]);
+        setBeneficiaryUuid('');
+        setPlanName('');
+        setHasPlusPlan(false);
+        return;
+      }
       try {
         const [meRes, depRes] = await Promise.all([
           axios.get('/api/me', { headers: { Authorization: `Bearer ${token}` } }),
@@ -62,6 +221,9 @@ export default function AssinanteAgendamentosPage() {
         ]);
         const opts: { uuid: string; label: string }[] = [];
         const me = meRes?.data?.user || {};
+        const planInfo = extractPlanInfo(meRes?.data?.user);
+        setPlanName(planInfo.planName);
+        setHasPlusPlan(planInfo.isPlus);
         if (me?.beneficiaryUuid) {
           opts.push({ uuid: String(me.beneficiaryUuid), label: me?.name ? `${me.name} (Titular)` : 'Titular' });
         }
@@ -72,7 +234,10 @@ export default function AssinanteAgendamentosPage() {
         });
         setPatients(opts);
         if (opts.length) setBeneficiaryUuid(opts[0].uuid);
-      } catch {}
+      } catch {
+        setPlanName('');
+        setHasPlusPlan(false);
+      }
     };
     loadPatients();
   }, [token]);
@@ -83,6 +248,7 @@ export default function AssinanteAgendamentosPage() {
     setDisp([]);
     setResult(null);
     setError('');
+    setSelectedReferralId('');
 
     if (!id) {
       return;
@@ -133,6 +299,47 @@ export default function AssinanteAgendamentosPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [beneficiaryUuid, dateInitial, dateFinal]);
 
+  useEffect(() => {
+    if (!beneficiaryUuid) {
+      setReferrals([]);
+      setSelectedReferralId('');
+      setReferralsError('');
+      return;
+    }
+
+    let active = true;
+    const loadReferrals = async () => {
+      try {
+        setLoadingReferrals(true);
+        setReferralsError('');
+        const { data } = await axios.get(`/api/rapidoc/beneficiaries/${beneficiaryUuid}/referrals`);
+        if (!active) return;
+        const items = parseReferrals(data);
+        setReferrals(items);
+      } catch (e: any) {
+        if (!active) return;
+        setReferrals([]);
+        setReferralsError(
+          e?.response?.data?.message ||
+            e?.response?.data?.error ||
+            e?.message ||
+            'Falha ao carregar encaminhamentos do beneficiário.',
+        );
+      } finally {
+        if (active) {
+          setLoadingReferrals(false);
+        }
+      }
+    };
+
+    setSelectedReferralId('');
+    loadReferrals();
+
+    return () => {
+      active = false;
+    };
+  }, [beneficiaryUuid]);
+
   const computeSlotId = (entry: any): string | undefined => {
     if (!entry) {
       return undefined;
@@ -140,6 +347,79 @@ export default function AssinanteAgendamentosPage() {
 
     return entry.id ?? entry.uuid ?? entry.slotId ?? entry.code;
   };
+
+  const currentSpec = useMemo<Specialty | null>(() => {
+    if (!specId) return null;
+    return (
+      specs.find((spec, index) => {
+        const id = spec.id ?? spec.uuid ?? (spec as any)?.code ?? index;
+        return String(id) === String(specId);
+      }) || null
+    );
+  }, [specId, specs]);
+
+  const currentSpecName = currentSpec?.name ? String(currentSpec.name) : '';
+  const normalizedSpecName = currentSpecName.toLowerCase();
+  const isPsychology = normalizedSpecName.includes('psic');
+  const isNutrition = normalizedSpecName.includes('nutri');
+  const isPsychOrNutrition = isPsychology || isNutrition;
+  const requiresReferral = Boolean(specId) && !(hasPlusPlan && isPsychOrNutrition);
+
+  const referralOptions = useMemo<ReferralOption[]>(() => {
+    if (!referrals.length) return [];
+    if (!specId) return referrals;
+    const matches: ReferralOption[] = [];
+    const others: ReferralOption[] = [];
+    referrals.forEach((ref) => {
+      const refIdMatches = ref.specialtyId ? String(ref.specialtyId) === String(specId) : false;
+      const refName = ref.specialtyName ? ref.specialtyName.toLowerCase() : '';
+      const nameMatches =
+        normalizedSpecName && refName
+          ? refName.includes(normalizedSpecName) || normalizedSpecName.includes(refName)
+          : false;
+      if (refIdMatches || nameMatches) {
+        matches.push(ref);
+      } else {
+        others.push(ref);
+      }
+    });
+    return [...matches, ...others];
+  }, [referrals, specId, normalizedSpecName]);
+
+  useEffect(() => {
+    if (!selectedReferralId) return;
+    if (referralOptions.some((ref) => ref.id === selectedReferralId)) return;
+    setSelectedReferralId('');
+  }, [selectedReferralId, referralOptions]);
+
+  useEffect(() => {
+    if (!requiresReferral) return;
+    if (selectedReferralId) return;
+    if (!referralOptions.length) return;
+    setSelectedReferralId(referralOptions[0].id);
+  }, [requiresReferral, referralOptions, selectedReferralId]);
+
+  const selectedReferral = useMemo<ReferralOption | null>(() => {
+    if (!selectedReferralId) return null;
+    return referrals.find((ref) => ref.id === selectedReferralId) || null;
+  }, [selectedReferralId, referrals]);
+
+  const selectedReferralSummary = useMemo<ReferralSummary | null>(() => {
+    if (!selectedReferral) return null;
+    const expiry = selectedReferral.expiresAt ? formatDateLabel(selectedReferral.expiresAt) : null;
+    const parts = [selectedReferral.label];
+    if (expiry && !selectedReferral.label.toLowerCase().includes(String(expiry).toLowerCase())) {
+      parts.push(`Validade: ${expiry}`);
+    }
+    return { label: parts.join(' • '), raw: selectedReferral.raw };
+  }, [selectedReferral]);
+
+  const canConfirm = Boolean(
+    beneficiaryUuid &&
+      specId &&
+      slotId &&
+      (!requiresReferral || (!!selectedReferral && selectedReferral.id)),
+  );
 
   const allSlots = useMemo<SlotOption[]>(() => {
     const rows: SlotOption[] = [];
@@ -186,16 +466,34 @@ export default function AssinanteAgendamentosPage() {
       return;
     }
 
+    if (requiresReferral && !selectedReferral) {
+      setError('Selecione um encaminhamento válido para esta especialidade.');
+      return;
+    }
+
     try {
       setLoading(true);
       setError('');
       setResult(null);
 
-      const payload = {
+      const payload: Record<string, unknown> = {
         beneficiaryUuid,
         specialtyId: specId,
         slotId,
       };
+
+      if (selectedReferral) {
+        const rawReferral = asRecord(selectedReferral.raw) || {};
+        const referralUuid =
+          stringFrom(rawReferral['uuid']) ||
+          stringFrom(rawReferral['id']) ||
+          stringFrom(rawReferral['referralUuid']) ||
+          stringFrom(rawReferral['referralId']) ||
+          selectedReferral.id;
+        const referralId = stringFrom(rawReferral['id']) || selectedReferral.id;
+        payload.referralUuid = referralUuid;
+        payload.referralId = referralId;
+      }
 
       const { data } = await axios.post<AppointmentResp>('/api/rapidoc/agendamentos', payload);
 
@@ -233,6 +531,10 @@ export default function AssinanteAgendamentosPage() {
                   </option>
                 ))}
               </select>
+              <p className="mt-2 text-xs text-zinc-500">
+                Plano atual:{' '}
+                <span className="font-medium text-emerald-700">{planName || 'Não identificado'}</span>
+              </p>
               {!patients.length && (
                 <p className="mt-1 text-xs text-zinc-500">
                   Cadastre seu titular ou dependente em <strong>Dependentes</strong> antes de seguir com o agendamento.
@@ -300,6 +602,64 @@ export default function AssinanteAgendamentosPage() {
                   );
                 })}
               </select>
+              {hasPlusPlan ? (
+                <p className="mt-2 text-xs text-emerald-600">
+                  Beneficiários do plano Plus podem agendar psicologia e nutrição sem encaminhamento.
+                </p>
+              ) : (
+                <p className="mt-2 text-xs text-zinc-500">
+                  Especialidades exigem encaminhamento emitido por um clínico geral antes do agendamento.
+                </p>
+              )}
+            </div>
+
+            <div>
+              <label className="label">Encaminhamento</label>
+              {loadingReferrals ? (
+                <p className="text-sm text-zinc-500">Carregando encaminhamentos…</p>
+              ) : referralOptions.length ? (
+                <>
+                  <select
+                    className="select"
+                    value={selectedReferralId}
+                    onChange={(event) => setSelectedReferralId(event.target.value)}
+                  >
+                    <option value="">
+                      {requiresReferral ? 'Selecione um encaminhamento…' : 'Opcional: sem encaminhamento'}
+                    </option>
+                    {referralOptions.map((referral) => (
+                      <option key={referral.id} value={referral.id}>
+                        {referral.label}
+                      </option>
+                    ))}
+                  </select>
+                  {requiresReferral && !selectedReferralId && (
+                    <p className="mt-2 text-xs text-amber-600">
+                      Vincule o encaminhamento correspondente para liberar o agendamento de{' '}
+                      {currentSpecName || 'especialidade'}.
+                    </p>
+                  )}
+                  {selectedReferralSummary && selectedReferralId && (
+                    <p className="mt-2 rounded-xl border border-emerald-100 bg-emerald-50/70 p-2 text-xs text-emerald-700">
+                      <strong className="block text-[11px] uppercase tracking-wide">Encaminhamento selecionado</strong>
+                      {selectedReferralSummary.label}
+                    </p>
+                  )}
+                </>
+              ) : requiresReferral ? (
+                <p className="rounded-xl border border-amber-200 bg-amber-50/80 p-3 text-xs text-amber-700">
+                  Solicite uma avaliação com o clínico geral para liberar {currentSpecName || 'a especialidade selecionada'}.
+                  Assim que o encaminhamento for emitido, ele aparecerá aqui automaticamente.
+                </p>
+              ) : (
+                <p className="text-xs text-emerald-600">
+                  Esta especialidade dispensa encaminhamento para o seu plano. Quando houver encaminhamentos disponíveis,
+                  eles aparecerão aqui para uso opcional.
+                </p>
+              )}
+              {referralsError && (
+                <p className="mt-2 text-xs text-red-600">{String(referralsError)}</p>
+              )}
             </div>
 
             <div>
@@ -338,7 +698,7 @@ export default function AssinanteAgendamentosPage() {
         <div className="mt-4 flex flex-col gap-3 sm:flex-row">
           <button
             onClick={createAppointment}
-            disabled={loading}
+            disabled={loading || !canConfirm}
             className="inline-flex items-center justify-center rounded-full bg-emerald-600 px-6 py-2 text-sm font-semibold text-white shadow transition hover:bg-emerald-700 disabled:opacity-60"
           >
             {loading ? 'Agendando…' : 'Confirmar agendamento'}
@@ -381,6 +741,14 @@ export default function AssinanteAgendamentosPage() {
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Slot selecionado</p>
                 <pre className="mt-1 whitespace-pre-wrap break-all text-[11px] leading-relaxed">
                   {JSON.stringify(selectedSlotSummary.raw, null, 2)}
+                </pre>
+              </div>
+            )}
+            {selectedReferral?.raw && (
+              <div className="mt-3 rounded-lg border border-emerald-100 bg-emerald-50/80 p-2">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Encaminhamento utilizado</p>
+                <pre className="mt-1 whitespace-pre-wrap break-all text-[11px] leading-relaxed">
+                  {JSON.stringify(selectedReferral.raw, null, 2)}
                 </pre>
               </div>
             )}
