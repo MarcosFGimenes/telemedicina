@@ -8,12 +8,20 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   const incoming = await req.json();
-  const payload = {
+  const payload: Record<string, unknown> = {
     beneficiaryUuid: incoming.beneficiaryUuid,
     availabilityUuid: incoming.slotId || incoming.availabilityUuid,
     specialtyUuid: incoming.specialtyId || incoming.specialtyUuid,
     approveAdditionalPayment: true,
   };
+
+  if (incoming.referralUuid || incoming.referralId) {
+    payload.referralUuid = incoming.referralUuid || incoming.referralId;
+  }
+
+  if (incoming.referralId) {
+    payload.referralId = incoming.referralId;
+  }
 
   const { data } = await rapidoc.post('/appointments', payload, {
     headers: { 'Content-Type': 'application/vnd.rapidoc.tema-v2+json' },
