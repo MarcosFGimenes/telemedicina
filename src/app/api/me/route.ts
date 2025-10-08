@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, db } from '@/lib/firebaseAdmin';
+import { listAsaasPaymentsByCustomer } from '@/lib/asaasService';
 
 async function getAuth(req: NextRequest) {
   const authz = req.headers.get('authorization') || '';
@@ -45,9 +46,10 @@ export async function GET(req: NextRequest) {
     }
   }
   const cpf = (userDoc?.cpf as string | undefined) || null;
+  const asaasCustomerId = (userDoc?.asaasCustomerId as string | undefined) || null;
 
-  // pagamentos por CPF
-  let payments: unknown[] = [];
+  // pagamentos por CPF armazenados no Firestore (legado)
+  let payments: Record<string, unknown>[] = [];
   if (cpf) {
     const pSnap = await db
       .collection('payments')
@@ -55,7 +57,33 @@ export async function GET(req: NextRequest) {
       .limit(50)
       .get()
       .catch(() => null);
-    payments = pSnap?.docs?.map((d) => ({ id: d.id, ...(d.data() as Record<string, unknown>) })) || [];
+    payments = pSnap?.docs?.map((d) => ({ id: d.id, source: 'firestore', ...(d.data() as Record<string, unknown>) })) || [];
+  }
+
+  // pagamentos sincronizados direto do Asaas
+  if (asaasCustomerId) {
+    const asaasPayments = await listAsaasPaymentsByCustomer(asaasCustomerId).catch(() => []);
+    payments = [
+      ...asaasPayments.map((payment) => ({
+        id: payment.id,
+        source: 'asaas',
+        status: payment.status,
+        value: payment.value,
+        processedAt:
+          payment.updatedAt ||
+          payment.confirmedDate ||
+          payment.paymentDate ||
+          payment.creditDate ||
+          payment.dateCreated ||
+          payment.createdDate,
+        dueDate: payment.dueDate,
+        paymentDate: payment.paymentDate,
+        billingType: payment.billingType,
+        invoiceUrl: payment.invoiceUrl || payment.bankSlipUrl || payment.transactionReceiptUrl,
+        raw: payment,
+      })),
+      ...payments,
+    ];
   }
 
   return NextResponse.json({ ok: true, user: userDoc, payments });

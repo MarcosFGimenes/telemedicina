@@ -2,7 +2,7 @@
 
 import { useAuthContext } from '@/components/auth/AuthProvider';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 type Payment = {
   id: string;
@@ -10,6 +10,10 @@ type Payment = {
   processedAt?: string;
   value?: number;
   invoiceUrl?: string | null;
+  dueDate?: string;
+  paymentDate?: string | null;
+  billingType?: string;
+  source?: string;
 };
 
 const formatCurrency = (value?: number) => {
@@ -17,7 +21,18 @@ const formatCurrency = (value?: number) => {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
 };
 
-const formatDate = (value?: string) => {
+const formatDate = (value?: string | null) => {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return new Intl.DateTimeFormat('pt-BR', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  }).format(date);
+};
+
+const formatDateTime = (value?: string | null) => {
   if (!value) return '—';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '—';
@@ -28,6 +43,17 @@ const formatDate = (value?: string) => {
     hour: '2-digit',
     minute: '2-digit',
   }).format(date);
+};
+
+const normalizeStatus = (value?: string) => String(value || 'PENDING').toUpperCase();
+
+const statusStyles: Record<string, string> = {
+  PENDING: 'bg-amber-50 text-amber-700',
+  RECEIVED: 'bg-emerald-50 text-emerald-700',
+  CONFIRMED: 'bg-emerald-50 text-emerald-700',
+  OVERDUE: 'bg-rose-50 text-rose-700',
+  REFUNDED: 'bg-sky-50 text-sky-700',
+  CANCELLED: 'bg-zinc-100 text-zinc-600',
 };
 
 export default function FaturasPage() {
@@ -45,7 +71,21 @@ export default function FaturasPage() {
         const res = await fetch('/api/me', { headers: { Authorization: `Bearer ${token}` } });
         if (!res.ok) throw new Error('Falha ao carregar faturas');
         const data = await res.json();
-        setPayments(Array.isArray(data?.payments) ? data.payments : []);
+        const mapped: Payment[] = Array.isArray(data?.payments)
+          ? data.payments.map((payment: Payment) => ({
+              ...payment,
+              status: normalizeStatus(payment.status),
+            }))
+          : [];
+        const sorted = [...mapped].sort((a, b) => {
+          const aDate = new Date(a.processedAt || a.dueDate || '').getTime();
+          const bDate = new Date(b.processedAt || b.dueDate || '').getTime();
+          if (Number.isNaN(aDate) && Number.isNaN(bDate)) return 0;
+          if (Number.isNaN(aDate)) return 1;
+          if (Number.isNaN(bDate)) return -1;
+          return bDate - aDate;
+        });
+        setPayments(sorted);
       } catch (e: any) {
         setErr(e?.message || 'Falha ao carregar faturas');
       } finally {
@@ -55,8 +95,12 @@ export default function FaturasPage() {
     load();
   }, [token]);
 
-  const paid = payments.filter((p) => String(p.status || '').toUpperCase() === 'CONFIRMED' || String(p.status || '').toUpperCase() === 'RECEIVED');
-  const pending = payments.filter((p) => !paid.includes(p));
+  const { paid, pending } = useMemo(() => {
+    const paidStatuses = new Set(['CONFIRMED', 'RECEIVED']);
+    const paidList = payments.filter((p) => paidStatuses.has(normalizeStatus(p.status)));
+    const pendingList = payments.filter((p) => !paidStatuses.has(normalizeStatus(p.status)));
+    return { paid: paidList, pending: pendingList };
+  }, [payments]);
 
   return (
     <div className="space-y-6">
@@ -64,9 +108,14 @@ export default function FaturasPage() {
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-lg font-semibold text-zinc-900">Resumo financeiro</h2>
-            <p className="text-sm text-zinc-600">Integração automática com o Asaas para emissão e confirmação de faturas.</p>
+            <p className="text-sm text-zinc-600">
+              Integração automática com o Asaas para emissão e confirmação de faturas.
+            </p>
           </div>
-          <Link href="/admin/financeiro" className="text-xs font-semibold text-emerald-700 underline-offset-2 hover:underline">
+          <Link
+            href="/admin/financeiro"
+            className="text-xs font-semibold text-emerald-700 underline-offset-2 hover:underline"
+          >
             Abrir painel financeiro admin
           </Link>
         </div>
@@ -86,7 +135,9 @@ export default function FaturasPage() {
           </div>
           <div className="rounded-2xl border border-emerald-200 bg-emerald-50/80 p-4">
             <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Última atualização</p>
-            <p className="mt-2 text-sm text-emerald-700">{loading ? 'Sincronizando…' : formatDate(payments[0]?.processedAt)}</p>
+            <p className="mt-2 text-sm text-emerald-700">
+              {loading ? 'Sincronizando…' : formatDateTime(payments[0]?.processedAt)}
+            </p>
           </div>
         </div>
       </section>
@@ -95,7 +146,9 @@ export default function FaturasPage() {
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-lg font-semibold text-zinc-900">Histórico de faturas</h2>
-            <p className="text-sm text-zinc-600">Clique no identificador para abrir a fatura diretamente no ambiente Asaas.</p>
+            <p className="text-sm text-zinc-600">
+              Clique no identificador para abrir a fatura diretamente no ambiente Asaas.
+            </p>
           </div>
         </div>
 
@@ -113,40 +166,60 @@ export default function FaturasPage() {
                   <th className="px-3 py-2 text-left font-semibold">ID</th>
                   <th className="px-3 py-2 text-left font-semibold">Valor</th>
                   <th className="px-3 py-2 text-left font-semibold">Status</th>
-                  <th className="px-3 py-2 text-left font-semibold">Atualização</th>
+                  <th className="px-3 py-2 text-left font-semibold">Vencimento</th>
+                  <th className="px-3 py-2 text-left font-semibold">Pagamento</th>
+                  <th className="px-3 py-2 text-left font-semibold">Fonte</th>
                   <th className="px-3 py-2 text-left font-semibold">Fatura</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-emerald-50 bg-white/80">
-                {payments.map((p) => (
-                  <tr key={p.id} className="text-xs text-zinc-600">
-                    <td className="px-3 py-2 font-mono text-[11px] text-emerald-700">
-                      {p.invoiceUrl ? (
-                        <a href={p.invoiceUrl} target="_blank" rel="noreferrer" className="underline-offset-2 hover:underline">
-                          {p.id}
-                        </a>
-                      ) : (
-                        p.id
-                      )}
-                    </td>
-                    <td className="px-3 py-2 font-semibold text-zinc-700">{formatCurrency(p.value)}</td>
-                    <td className="px-3 py-2">
-                      <span className="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
-                        {String(p.status || 'PENDENTE').toUpperCase()}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2">{formatDate(p.processedAt)}</td>
-                    <td className="px-3 py-2 text-emerald-700">
-                      {p.invoiceUrl ? (
-                        <a href={p.invoiceUrl} target="_blank" rel="noreferrer" className="underline-offset-2 hover:underline">
-                          Abrir fatura
-                        </a>
-                      ) : (
-                        <span className="text-zinc-400">—</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                {payments.map((p) => {
+                  const status = normalizeStatus(p.status);
+                  const statusClass = statusStyles[status] || 'bg-zinc-100 text-zinc-600';
+                  return (
+                    <tr key={p.id} className="text-xs text-zinc-600">
+                      <td className="px-3 py-2 font-mono text-[11px] text-emerald-700">
+                        {p.invoiceUrl ? (
+                          <a
+                            href={p.invoiceUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="underline-offset-2 hover:underline"
+                          >
+                            {p.id}
+                          </a>
+                        ) : (
+                          p.id
+                        )}
+                      </td>
+                      <td className="px-3 py-2 font-semibold text-zinc-700">{formatCurrency(p.value)}</td>
+                      <td className="px-3 py-2">
+                        <span
+                          className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${statusClass}`}
+                        >
+                          {status}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2">{formatDate(p.dueDate)}</td>
+                      <td className="px-3 py-2">{formatDate(p.paymentDate)}</td>
+                      <td className="px-3 py-2 capitalize">{p.source === 'asaas' ? 'Asaas' : 'Registro interno'}</td>
+                      <td className="px-3 py-2 text-emerald-700">
+                        {p.invoiceUrl ? (
+                          <a
+                            href={p.invoiceUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="underline-offset-2 hover:underline"
+                          >
+                            Abrir fatura
+                          </a>
+                        ) : (
+                          <span className="text-zinc-400">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

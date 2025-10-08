@@ -197,3 +197,8 @@ export async function reactivateBeneficiary(uuid: string) {
   const { data } = await rapidoc.put(`/beneficiaries/${uuid}/reactivate`, {});
   return data;
 }
+
+export async function deactivateBeneficiary(uuid: string) {
+  const { data } = await rapidoc.delete(`/beneficiaries/${uuid}`);
+  return data;
+}

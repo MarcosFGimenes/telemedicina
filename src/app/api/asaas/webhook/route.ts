@@ -6,7 +6,11 @@ import {
   buildBeneficiaryPayload,
   type BeneficiaryUserRecord,
 } from '@/lib/beneficiaryPayload';
-import { ensureBeneficiaryByCPF, reactivateBeneficiary } from '@/lib/rapidocService';
+import {
+  deactivateBeneficiary,
+  ensureBeneficiaryByCPF,
+  reactivateBeneficiary,
+} from '@/lib/rapidocService';
 
 const SECRET = process.env.ASAAS_WEBHOOK_SECRET || '';
 
@@ -16,6 +20,12 @@ const DEACTIVATION_EVENTS = new Set([
   'PAYMENT_REFUNDED',
   'PAYMENT_DELETED',
   'PAYMENT_CANCELLED',
+]);
+const TRACKED_EVENTS = new Set([
+  ...ACTIVATION_EVENTS,
+  ...DEACTIVATION_EVENTS,
+  'PAYMENT_CREATED',
+  'PAYMENT_UPDATED',
 ]);
 
 export async function POST(req: NextRequest) {
@@ -31,6 +41,10 @@ export async function POST(req: NextRequest) {
 
   if (!customerId) {
     return NextResponse.json({ ok: true, note: 'missing customer id' });
+  }
+
+  if (!TRACKED_EVENTS.has(type)) {
+    return NextResponse.json({ ok: true, note: `event ${type} ignored` });
   }
 
   const snapshot = await db
@@ -92,7 +106,7 @@ export async function POST(req: NextRequest) {
     const ensured = await ensureBeneficiaryByCPF(basePayload);
     if (ensured?.uuid) {
       try {
-        await reactivateBeneficiary(ensured.uuid, basePayload);
+        await reactivateBeneficiary(ensured.uuid);
       } catch (error) {
         console.error('[asaas/webhook] reactivate failed', ensured.uuid, error);
       }
@@ -105,6 +119,13 @@ export async function POST(req: NextRequest) {
     }
   } else if (DEACTIVATION_EVENTS.has(type)) {
     await userRef.update({ status: 'inactive', updatedAt: new Date() });
+    if (user?.beneficiaryUuid) {
+      try {
+        await deactivateBeneficiary(String(user.beneficiaryUuid));
+      } catch (error) {
+        console.error('[asaas/webhook] deactivate failed', user?.beneficiaryUuid, error);
+      }
+    }
   }
 
   // Registrar/atualizar documento de fatura (payments) deste pagamento
@@ -120,6 +141,12 @@ export async function POST(req: NextRequest) {
         value: payment?.value ?? null,
         billingType: payment?.billingType ?? null,
         invoiceUrl: payment?.invoiceUrl ?? null,
+        dueDate: payment?.dueDate ?? null,
+        paymentDate: payment?.paymentDate ?? null,
+        confirmedDate: payment?.confirmedDate ?? null,
+        transactionReceiptUrl: payment?.transactionReceiptUrl ?? null,
+        bankSlipUrl: payment?.bankSlipUrl ?? null,
+        createdDate: payment?.dateCreated ?? payment?.createdDate ?? null,
       };
       // Marca processed quando recebido/confirmado
       if (ACTIVATION_EVENTS.has(type)) {
