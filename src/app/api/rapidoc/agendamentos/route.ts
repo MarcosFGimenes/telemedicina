@@ -15,12 +15,9 @@ export async function POST(req: NextRequest) {
     approveAdditionalPayment: true,
   };
 
-  if (incoming.referralUuid || incoming.referralId) {
-    payload.referralUuid = incoming.referralUuid || incoming.referralId;
-  }
-
-  if (incoming.referralId) {
-    payload.referralId = incoming.referralId;
+  const refUuid = (incoming as any).referralUuid || (incoming as any).referralId;
+  if (refUuid) {
+    (payload as any).beneficiaryMedicalReferralUuid = refUuid;
   }
 
   const { data } = await rapidoc.post('/appointments', payload, {

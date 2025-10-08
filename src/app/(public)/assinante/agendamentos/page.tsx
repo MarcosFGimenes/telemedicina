@@ -161,7 +161,22 @@ const extractPlanInfo = (user: unknown): { planName: string; isPlus: boolean } =
     stringFrom(record.product),
     stringFrom(record.planSlug),
   ].filter(Boolean) as string[];
-  const planName = candidates[0] || '';
+  let planName = candidates[0] || '';
+  if (!planName) {
+    const st = (stringFrom(record.serviceType) || '').toUpperCase();
+    planName =
+      st === 'G'
+        ? 'Generalista'
+        : st === 'P'
+        ? 'Psicologia'
+        : st === 'GP'
+        ? 'Generalista + Psicologia'
+        : st === 'GS'
+        ? 'Generalista + Especialistas'
+        : st === 'GSP'
+        ? 'Generalista + Especialistas + Psicologia'
+        : '';
+  }
   const isPlus = candidates.some((value) => value.toLowerCase().includes('plus'));
   return { planName, isPlus };
 };
@@ -363,7 +378,11 @@ export default function AssinanteAgendamentosPage() {
   const isPsychology = normalizedSpecName.includes('psic');
   const isNutrition = normalizedSpecName.includes('nutri');
   const isPsychOrNutrition = isPsychology || isNutrition;
-  const requiresReferral = Boolean(specId) && !(hasPlusPlan && isPsychOrNutrition);
+  const isGeneralist =
+    normalizedSpecName.includes('generalista') ||
+    (normalizedSpecName.includes('clín') && normalizedSpecName.includes('geral')) ||
+    (normalizedSpecName.includes('clin') && normalizedSpecName.includes('geral'));
+  const requiresReferral = Boolean(specId) && !isPsychOrNutrition;
 
   const referralOptions = useMemo<ReferralOption[]>(() => {
     if (!referrals.length) return [];
@@ -602,15 +621,10 @@ export default function AssinanteAgendamentosPage() {
                   );
                 })}
               </select>
-              {hasPlusPlan ? (
-                <p className="mt-2 text-xs text-emerald-600">
-                  Beneficiários do plano Plus podem agendar psicologia e nutrição sem encaminhamento.
-                </p>
-              ) : (
-                <p className="mt-2 text-xs text-zinc-500">
-                  Especialidades exigem encaminhamento emitido por um clínico geral antes do agendamento.
-                </p>
-              )}
+              <p className="mt-2 text-xs text-zinc-600">
+                Todas as especialidades exigem encaminhamento emitido por um clinico geral, exceto Psicologia e Nutricao.
+              </p>
+
             </div>
 
             <div>
@@ -723,6 +737,7 @@ export default function AssinanteAgendamentosPage() {
               }
             }}
             className="inline-flex items-center justify-center rounded-full border border-emerald-600 px-6 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50"
+            style={{ display: isGeneralist ? 'inline-flex' : 'none' }}
           >
             Atendimento imediato
           </button>

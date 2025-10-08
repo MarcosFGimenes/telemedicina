@@ -21,7 +21,8 @@ export async function GET(_request: NextRequest, ctx: { params: Promise<Params> 
   }
 
   try {
-    const { data } = await rapidoc.get(`/beneficiaries/${trimmed}/referrals`);
+    // Rapidoc v2: endpoint correto é `medical-referrals`
+    const { data } = await rapidoc.get(`/beneficiaries/${trimmed}/medical-referrals`);
     return NextResponse.json(data);
   } catch (error: unknown) {
     const err = error as { response?: { status?: number; data?: unknown }; message?: string } | undefined;

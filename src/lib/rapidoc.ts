@@ -141,7 +141,7 @@ rapidoc.interceptors.request.use((config) => {
   }
 
   if (!['GET', 'DELETE'].includes(method) && !hasCustomContentType) {
-    mergedHeaders['Content-Type'] = 'application/json';
+    mergedHeaders['Content-Type'] = 'application/vnd.rapidoc.tema-v2+json';
   }
 
   Object.entries(existingHeaders).forEach(([key, value]) => {

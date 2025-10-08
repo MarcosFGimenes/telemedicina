@@ -30,6 +30,16 @@ const navLinks: NavLink[] = [
     helper: 'Escolha especialidade, horário e beneficiário',
   },
   {
+    href: '/assinante/imediato',
+    label: 'Atendimento imediato',
+    helper: 'Clínico geral via telemedicina',
+  },
+  {
+    href: '/assinante/autoatendimento',
+    label: 'Autoatendimento',
+    helper: 'Perfil, plano e consultas',
+  },
+  {
     href: '/assinante/dependentes',
     label: 'Dependentes',
     helper: 'Cadastre e acompanhe seus vínculos',
@@ -54,6 +64,10 @@ const metaByRoute: Record<string, SubscriberMeta> = {
   '/assinante/agendamentos': {
     title: 'Agendar novo atendimento',
     description: 'Selecione beneficiário, especialidade e confirme seu horário.',
+  },
+  '/assinante/imediato': {
+    title: 'Atendimento imediato',
+    description: 'Fila de telemedicina com clínico geral (generalista).',
   },
   '/assinante/dependentes': {
     title: 'Gestão de dependentes',

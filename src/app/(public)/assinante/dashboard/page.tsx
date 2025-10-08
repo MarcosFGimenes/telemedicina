@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import Link from 'next/link';
 import { useAuthContext } from '@/components/auth/AuthProvider';
@@ -90,7 +90,25 @@ export default function AssinanteDashboard() {
 
   const status = data.me?.user?.status ? String(data.me.user.status).toUpperCase() : 'PENDENTE';
   const beneficiaryUuid = data.me?.user?.beneficiaryUuid ?? '';
-  const planName = data.me?.user?.planName ?? 'Plano não identificado';
+  const planName = useMemo(() => {
+    const raw = data.me?.user?.planName as string | undefined;
+    if (raw) return raw;
+    const st = String((data.me?.user as any)?.serviceType || '').toUpperCase();
+    switch (st) {
+      case 'G':
+        return 'Generalista';
+      case 'P':
+        return 'Psicologia';
+      case 'GP':
+        return 'Generalista + Psicologia';
+      case 'GS':
+        return 'Generalista + Especialistas';
+      case 'GSP':
+        return 'Generalista + Especialistas + Psicologia';
+      default:
+        return 'Plano não identificado';
+    }
+  }, [data.me?.user]);;
 
   const nextPayment = useMemo<Payment | null>(() => {
     const payments = data.me?.payments ?? [];
@@ -270,3 +288,4 @@ export default function AssinanteDashboard() {
     </div>
   );
 }
+

@@ -25,6 +25,25 @@ export async function GET(req: NextRequest) {
   if (snap.empty && email) snap = await users.where('email', '==', email).limit(1).get();
 
   const userDoc = snap.empty ? null : { id: snap.docs[0].id, ...(snap.docs[0].data() as Record<string, unknown>) };
+  // Enriquecimento: derivar planName a partir de serviceType quando ausente
+  if (userDoc && !userDoc['planName']) {
+    const st = String(userDoc['serviceType'] || '').toUpperCase();
+    const derived =
+      st === 'G'
+        ? 'Generalista'
+        : st === 'P'
+        ? 'Psicologia'
+        : st === 'GP'
+        ? 'Generalista + Psicologia'
+        : st === 'GS'
+        ? 'Generalista + Especialistas'
+        : st === 'GSP'
+        ? 'Generalista + Especialistas + Psicologia'
+        : '';
+    if (derived) {
+      (userDoc as Record<string, unknown>)['planName'] = derived;
+    }
+  }
   const cpf = (userDoc?.cpf as string | undefined) || null;
 
   // pagamentos por CPF
