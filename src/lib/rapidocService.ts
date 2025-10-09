@@ -64,6 +64,8 @@ const extractList = (raw: unknown): RapidocRecord[] => {
   return [];
 };
 
+export const extractBeneficiaries = extractList;
+
 const readDigits = (value: unknown) => (typeof value === 'string' ? onlyDigits(value) : '');
 
 const matchByCpf = (list: RapidocRecord[], cpf: string) => {
@@ -86,6 +88,13 @@ export async function rapidocFindByCpf(cpf: string): Promise<RapidocRecord | nul
   const list = extractList(data);
   const found = matchByCpf(list, clean);
   return found ?? null;
+}
+
+export async function rapidocListBeneficiaries(params?: Record<string, string | number | undefined>) {
+  const query = params ?? {};
+  // Endpoint Rapidoc: GET /beneficiaries
+  const { data } = await rapidoc.get('/beneficiaries', { params: query });
+  return extractList(data);
 }
 
 export type RapidocPostResult = { uuid?: string; raw: unknown; error?: unknown };

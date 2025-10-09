@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "build-tests",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "target": "ES2019",
+    "declaration": false,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "allowJs": false
+  },
+  "include": ["src/utils/beneficiary.ts", "src/utils/format.ts", "tests/**/*.ts"],
+  "exclude": ["node_modules"]
+}
