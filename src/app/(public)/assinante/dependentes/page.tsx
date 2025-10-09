@@ -3,6 +3,9 @@
 import axios from 'axios';
 import { useEffect, useState } from 'react';
 import { useAuthContext } from '@/components/auth/AuthProvider';
+import { normalizeBrazilianDate } from '@/utils/datetime';
+import { onlyDigits } from '@/utils/format';
+import { translateStatus } from '@/utils/status';
 
 type BeneficiaryForm = {
   name: string;
@@ -70,7 +73,13 @@ export default function AssinanteDependentesPage() {
       setErr('');
       setResp(null);
 
-      const payload = [form];
+      const payload = [
+        {
+          ...form,
+          cpf: onlyDigits(form.cpf),
+          birthday: normalizeBrazilianDate(form.birthday) ?? form.birthday,
+        },
+      ];
       const { data } = await axios.post('/api/rapidoc/beneficiaries', payload);
       setResp(data);
 
@@ -92,7 +101,7 @@ export default function AssinanteDependentesPage() {
         if (uuid && token) {
           await axios.post(
             '/api/dependents',
-            { uuid, name: form.name, cpf: form.cpf },
+            { uuid, name: form.name, cpf: onlyDigits(form.cpf) },
             { headers: { Authorization: `Bearer ${token}` } },
           );
           const li = await axios.get('/api/dependents', { headers: { Authorization: `Bearer ${token}` } });
@@ -133,8 +142,8 @@ export default function AssinanteDependentesPage() {
               <li key={dependent.uuid} className="rounded-2xl border border-white/70 bg-white/90 p-4 shadow-sm">
                 <p className="text-base font-semibold text-emerald-700">{dependent.name || 'Dependente sem nome'}</p>
                 <p className="mt-1 font-mono text-[11px] text-zinc-400">{dependent.uuid}</p>
-                <p className="mt-2 text-xs uppercase tracking-wide text-emerald-600">
-                  {String(dependent.status || 'ATIVO').toUpperCase()}
+                <p className="mt-2 text-xs tracking-wide text-emerald-600">
+                  {translateStatus(dependent.status ?? 'ACTIVE')}
                 </p>
               </li>
             ))}

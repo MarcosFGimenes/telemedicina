@@ -3,6 +3,8 @@
 import { useAuthContext } from '@/components/auth/AuthProvider';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { PlanDefinition } from '@/types/plans';
+import { onlyDigits } from '@/utils/format';
+import { translateStatus } from '@/utils/status';
 
 type UserDoc = {
   name?: string;
@@ -76,6 +78,23 @@ const serviceTypeLabel = (value?: string) => {
   }
 };
 
+const asRecord = (value: unknown): Record<string, unknown> | null => {
+  if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return null;
+};
+
+const resolveBeneficiaryPayload = (payload: unknown): Beneficiary | null => {
+  const record = asRecord(payload);
+  if (!record) return null;
+  const nested = asRecord(record['beneficiary']);
+  if (nested) {
+    return { ...(record as Beneficiary), ...(nested as Beneficiary) };
+  }
+  return record as Beneficiary;
+};
+
 export default function PerfilPage() {
   const { token, user } = useAuthContext();
   const [me, setMe] = useState<MeResponse | null>(null);
@@ -143,8 +162,8 @@ export default function PerfilPage() {
 
   const fetchBeneficiary = useCallback(async () => {
     const beneficiaryUuid = me?.user?.beneficiaryUuid;
-    const cpf = me?.user?.cpf;
-    if (!beneficiaryUuid && !cpf) {
+    const cpfDigits = me?.user?.cpf ? onlyDigits(me.user.cpf) : '';
+    if (!beneficiaryUuid && !cpfDigits) {
       setBeneficiary(null);
       return;
     }
@@ -154,11 +173,12 @@ export default function PerfilPage() {
       setBeneficiaryError('');
       const url = beneficiaryUuid
         ? `/api/rapidoc/beneficiaries/${beneficiaryUuid}`
-        : `/api/rapidoc/beneficiaries/cpf/${cpf}`;
+        : `/api/rapidoc/beneficiaries/cpf/${cpfDigits}`;
       const res = await fetch(url);
       const data = await res.json().catch(() => null);
       if (!res.ok) throw new Error((data as any)?.message || (data as any)?.error || 'Falha ao carregar beneficiário.');
-      setBeneficiary((data || null) as Beneficiary | null);
+      const parsed = resolveBeneficiaryPayload(data);
+      setBeneficiary(parsed);
     } catch (error: any) {
       setBeneficiary(null);
       setBeneficiaryError(error?.message || 'Não foi possível carregar o status do plano.');
@@ -304,9 +324,9 @@ export default function PerfilPage() {
   };
 
   const statusLabel = useMemo(() => {
-    if (beneficiary?.status) return String(beneficiary.status).toUpperCase();
-    if (doc?.status) return String(doc.status).toUpperCase();
-    return 'PENDENTE';
+    if (beneficiary?.status) return translateStatus(beneficiary.status);
+    if (doc?.status) return translateStatus(doc.status);
+    return translateStatus('PENDING');
   }, [beneficiary?.status, doc?.status]);
 
   const derivedPlanName = useMemo(() => {

@@ -3,6 +3,8 @@
 import Link from 'next/link';
 import { useAuthContext } from '@/components/auth/AuthProvider';
 import { useEffect, useMemo, useState } from 'react';
+import { formatDateTimeDisplay } from '@/utils/datetime';
+import { translateStatus } from '@/utils/status';
 
 type ReferralRecord = {
   uuid: string;
@@ -48,10 +50,7 @@ const parseReferrals = (raw: unknown): ReferralRecord[] => {
   return mapped;
 };
 
-const formatStatus = (value?: string) => {
-  if (!value) return 'DESCONHECIDO';
-  return value.replace(/[_-]+/g, ' ').toUpperCase();
-};
+const formatStatus = (value?: string) => translateStatus(value);
 
 export default function AssinanteEncaminhamentosPage() {
   const { token } = useAuthContext();
@@ -209,7 +208,9 @@ export default function AssinanteEncaminhamentosPage() {
                     Status: <span className="font-semibold text-emerald-700">{formatStatus(ref.status)}</span>
                   </p>
                   {ref.createdAt && (
-                    <p className="text-xs text-zinc-500">Criado em: {ref.createdAt}</p>
+                    <p className="text-xs text-zinc-500">
+                      Criado em: {formatDateTimeDisplay(ref.createdAt)}
+                    </p>
                   )}
                 </div>
                 <div className="flex items-center gap-2">
