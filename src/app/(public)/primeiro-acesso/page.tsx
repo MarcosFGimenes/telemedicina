@@ -15,6 +15,7 @@ type Step = 'cpf' | 'confirm';
 
 type BeneficiaryResponse = {
   beneficiary: BeneficiaryRecord;
+  rapidoc?: Record<string, unknown>;
 };
 
 type ApiError = 'invalid_cpf' | 'not_found' | 'missing_uuid' | 'lookup_failed';
@@ -23,11 +24,11 @@ const readFirebaseError = (error: unknown) => {
   if (error instanceof FirebaseError) {
     switch (error.code) {
       case 'auth/email-already-in-use':
-        return 'Este e-mail já está em uso. Utilize outro endereço ou recupere a senha.';
+        return 'Este e-mail ja esta em uso. Utilize outro endereco ou recupere a senha.';
       case 'auth/invalid-email':
-        return 'Informe um e-mail válido para continuar.';
+        return 'Informe um e-mail valido para continuar.';
       case 'auth/weak-password':
-        return 'A senha informada é muito fraca. Utilize pelo menos 6 caracteres.';
+        return 'A senha informada e muito fraca. Utilize pelo menos 6 caracteres.';
       default:
         break;
     }
@@ -35,7 +36,7 @@ const readFirebaseError = (error: unknown) => {
   if (error instanceof Error && error.message) {
     return error.message;
   }
-  return 'Não foi possível concluir seu cadastro. Tente novamente.';
+  return 'Nao foi possivel concluir seu cadastro. Tente novamente.';
 };
 
 export default function FirstAccessPage() {
@@ -47,6 +48,7 @@ export default function FirstAccessPage() {
   const [lookupError, setLookupError] = useState('');
 
   const [beneficiary, setBeneficiary] = useState<BeneficiaryRecord | null>(null);
+  const [rapidocSnapshot, setRapidocSnapshot] = useState<Record<string, unknown> | null>(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -59,7 +61,7 @@ export default function FirstAccessPage() {
 
     const sanitized = cpf.replace(/\D/g, '');
     if (!isValidCpf(sanitized)) {
-      setCpfError('Informe um CPF válido com 11 dígitos.');
+      setCpfError('Informe um CPF valido com 11 digitos.');
       return;
     }
 
@@ -77,18 +79,21 @@ export default function FirstAccessPage() {
         const data = (await response.json().catch(() => ({}))) as { error?: ApiError };
         if (data.error === 'not_found') {
           setLookupError(
-            'Beneficiário não encontrado. Por favor, cadastre-se ou entre em contato com o atendimento.',
+            'Beneficiario nao encontrado. Por favor, cadastre-se ou entre em contato com o atendimento.',
           );
         } else if (data.error === 'invalid_cpf') {
-          setLookupError('CPF inválido. Verifique os números informados.');
+          setLookupError('CPF invalido. Verifique os numeros informados.');
         } else {
-          setLookupError('Não foi possível localizar o beneficiário. Tente novamente.');
+          setLookupError('Nao foi possivel localizar o beneficiario. Tente novamente.');
         }
         return;
       }
 
       const data = (await response.json()) as BeneficiaryResponse;
       setBeneficiary(data.beneficiary);
+      setRapidocSnapshot(
+        data.rapidoc && typeof data.rapidoc === 'object' ? data.rapidoc : data.beneficiary.raw ?? null,
+      );
       setEmail(data.beneficiary.email ?? '');
       setStep('confirm');
     } catch (error) {
@@ -106,17 +111,17 @@ export default function FirstAccessPage() {
     if (!beneficiary) return;
 
     if (!isValidEmail(email)) {
-      setFormError('Informe um e-mail válido.');
+      setFormError('Informe um e-mail valido.');
       return;
     }
 
     if (!isValidPassword(password)) {
-      setFormError('A senha deve conter no mínimo 6 caracteres.');
+      setFormError('A senha deve conter no minimo 6 caracteres.');
       return;
     }
 
     if (password !== confirmPassword) {
-      setFormError('A confirmação de senha não confere.');
+      setFormError('A confirmacao de senha nao confere.');
       return;
     }
 
@@ -138,6 +143,25 @@ export default function FirstAccessPage() {
       }
 
       try {
+        const payloadProfile = {
+          cpf: beneficiary.cpf,
+          name: beneficiary.name,
+          birthday: beneficiary.birthday,
+          phone: beneficiary.phone,
+          email,
+          zipCode: beneficiary.zipCode,
+          address: beneficiary.address,
+          city: beneficiary.city,
+          state: beneficiary.state,
+          serviceType: beneficiary.serviceType,
+          paymentType: beneficiary.paymentType,
+          clientId: beneficiary.clientId,
+          isActive: beneficiary.isActive ?? undefined,
+          plans: beneficiary.plans ?? undefined,
+          dependents: beneficiary.dependents ?? undefined,
+          raw: beneficiary.raw ?? rapidocSnapshot ?? undefined,
+        };
+
         await fetch('/api/me/beneficiary', {
           method: 'POST',
           headers: {
@@ -147,13 +171,10 @@ export default function FirstAccessPage() {
           body: JSON.stringify({
             uuid: beneficiary.uuid,
             overwrite: true,
-            profile: {
-              cpf: beneficiary.cpf,
-              name: beneficiary.name,
-              birthday: beneficiary.birthday,
-              phone: beneficiary.phone,
-              email,
-            },
+            profile: payloadProfile,
+            rapidocSnapshot: rapidocSnapshot ?? beneficiary.raw ?? null,
+            rapidocPlans: beneficiary.plans ?? null,
+            rapidocDependents: beneficiary.dependents ?? null,
           }),
         });
       } catch (error) {
@@ -173,7 +194,7 @@ export default function FirstAccessPage() {
       <div className="text-center">
         <h1 className="text-3xl font-semibold text-emerald-700">Primeiro acesso</h1>
         <p className="mt-2 text-sm text-zinc-600">
-          Valide seu CPF, confirme os dados do beneficiário e escolha um e-mail e senha para acessar a plataforma.
+          Valide seu CPF, confirme os dados do beneficiario e escolha um e-mail e senha para acessar a plataforma.
         </p>
       </div>
 
@@ -181,7 +202,7 @@ export default function FirstAccessPage() {
         <form onSubmit={handleCpfSubmit} className="card space-y-4 border-emerald-100 p-6">
           <div>
             <label className="label" htmlFor="cpf">
-              CPF do beneficiário
+              CPF do beneficiario
             </label>
             <input
               id="cpf"
@@ -200,13 +221,13 @@ export default function FirstAccessPage() {
           </div>
 
           <button type="submit" className="btn-primary w-full" disabled={loadingCpf}>
-            {loadingCpf ? 'Consultando…' : 'Continuar'}
+            {loadingCpf ? 'Consultando...' : 'Continuar'}
           </button>
 
           {lookupError && <p className="text-sm text-red-600">{lookupError}</p>}
 
           <p className="text-xs text-zinc-500">
-            Em caso de dúvidas, fale com o suporte em{' '}
+            Em caso de duvidas, fale com o suporte em{' '}
             <Link href={SUPPORT_URL} className="font-medium text-emerald-700 hover:underline">
               suporte@telemedicina.plus
             </Link>
@@ -219,7 +240,7 @@ export default function FirstAccessPage() {
         <form onSubmit={handleCreateAccount} className="card space-y-6 border-emerald-100 p-6">
           <div className="space-y-3">
             <p className="text-sm text-emerald-700">
-              Encontramos o beneficiário na Rapidoc. Confira os dados abaixo antes de criar sua conta.
+              Encontramos o beneficiario na Rapidoc. Confira os dados abaixo antes de criar sua conta.
             </p>
             <div className="grid gap-3 md:grid-cols-2">
               <div>
@@ -240,6 +261,28 @@ export default function FirstAccessPage() {
                 <div>
                   <label className="label">Telefone</label>
                   <input className="input bg-zinc-50" value={beneficiary.phone} readOnly />
+                </div>
+              )}
+              {beneficiary.address && (
+                <div className="md:col-span-2">
+                  <label className="label">Endereco</label>
+                  <input className="input bg-zinc-50" value={beneficiary.address} readOnly />
+                </div>
+              )}
+              {(beneficiary.city || beneficiary.state) && (
+                <div>
+                  <label className="label">Cidade/Estado</label>
+                  <input
+                    className="input bg-zinc-50"
+                    value={[beneficiary.city, beneficiary.state].filter(Boolean).join(' / ')}
+                    readOnly
+                  />
+                </div>
+              )}
+              {beneficiary.serviceType && (
+                <div>
+                  <label className="label">Tipo de servico</label>
+                  <input className="input bg-zinc-50" value={beneficiary.serviceType} readOnly />
                 </div>
               )}
             </div>
@@ -299,12 +342,17 @@ export default function FirstAccessPage() {
               onClick={() => {
                 setStep('cpf');
                 setSubmitting(false);
+                setRapidocSnapshot(null);
+                setBeneficiary(null);
+                setEmail('');
+                setPassword('');
+                setConfirmPassword('');
               }}
             >
               Voltar
             </button>
             <button type="submit" className="btn-primary" disabled={submitting}>
-              {submitting ? 'Criando acesso…' : 'Criar conta'}
+              {submitting ? 'Criando acesso...' : 'Criar conta'}
             </button>
           </div>
         </form>

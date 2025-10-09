@@ -1,9 +1,9 @@
 /**
  * Testes (Postman):
- * 1. Criar beneficiário via checkout finalizado.
+ * 1. Criar beneficiario via checkout finalizado.
  * 2. GET /api/rapidoc/beneficiaries/{beneficiaryId}/referrals (placeholder) retorna mensagem.
  * 3. Ajustar conforme necessidade futura.
- * 4. Confirmar resolução do parâmetro dinâmico.
+ * 4. Confirmar resolucao do parametro dinamico.
  * 5. --
  */
 
@@ -21,8 +21,18 @@ export async function GET(_request: NextRequest, ctx: { params: Promise<Params> 
   }
 
   try {
-    // Rapidoc v2: endpoint correto é `medical-referrals`
+    // Rapidoc v2: endpoint correto e `medical-referrals`
     const { data } = await rapidoc.get(`/beneficiaries/${trimmed}/medical-referrals`);
+    if (data && typeof data === 'object' && data !== null && (data as any).success === false) {
+      const message =
+        (typeof (data as any).message === 'string' && (data as any).message) ||
+        'Nenhum encaminhamento encontrado.';
+      const status = /nao encontrado/i.test(message.toLowerCase()) ? 404 : 502;
+      return NextResponse.json(
+        { error: 'referrals_not_found', message, backend: data, upstreamStatus: status },
+        { status },
+      );
+    }
     return NextResponse.json(data);
   } catch (error: unknown) {
     const err = error as { response?: { status?: number; data?: unknown }; message?: string } | undefined;

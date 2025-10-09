@@ -21,6 +21,16 @@ export async function GET(_request: NextRequest, ctx: { params: Promise<{ benefi
   }
   try {
     const { data } = await rapidoc.get(`/beneficiaries/${trimmed}`);
+    if (data && typeof data === 'object' && data !== null && (data as any).success === false) {
+      const message =
+        (typeof (data as any).message === 'string' && (data as any).message) ||
+        'Beneficiario nao encontrado.';
+      const status = /nao encontrado/i.test(message.toLowerCase()) ? 404 : 502;
+      return NextResponse.json(
+        { hint: 'rapidoc-beneficiary-get', upstreamStatus: status, message, upstream: data },
+        { status },
+      );
+    }
     return NextResponse.json(data);
   } catch (error) {
     if (axios.isAxiosError(error)) {
@@ -63,4 +73,3 @@ export async function PUT(request: NextRequest, ctx: { params: Promise<{ benefic
     return jsonError('rapidoc-beneficiary-put', 500, 'unknown error');
   }
 }
-

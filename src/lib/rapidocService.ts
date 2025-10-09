@@ -76,6 +76,58 @@ const matchByCpf = (list: RapidocRecord[], cpf: string) => {
   );
 };
 
+const nestedRecordKeys = ['beneficiary', 'beneficiario', 'data', 'payload', 'result', 'item'];
+
+const normalizeForMatch = (value: string) =>
+  value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+
+const readMessage = (raw: unknown) => {
+  if (!isRecord(raw)) {
+    return '';
+  }
+  const message = raw.message ?? (isRecord(raw.error) ? raw.error.message : raw.error);
+  return typeof message === 'string' ? message : '';
+};
+
+const unwrapSingleRecord = (raw: unknown): RapidocRecord | null => {
+  if (isRecord(raw)) {
+    for (const key of nestedRecordKeys) {
+      const nested = raw[key];
+      if (isRecord(nested)) {
+        return nested;
+      }
+    }
+    return raw;
+  }
+  return null;
+};
+
+const isExplicitNotFound = (raw: unknown) => {
+  if (!isRecord(raw)) return false;
+  if (raw.success === false) {
+    const message = normalizeForMatch(readMessage(raw));
+    return message.includes('nao encontrado') || message.includes('beneficiario nao localizado');
+  }
+  return false;
+};
+
+const ensureBeneficiaryRecord = (raw: unknown, cpf: string): RapidocRecord | null => {
+  const nested = unwrapSingleRecord(raw);
+  if (nested && (readDigits(nested.cpf) || readDigits(nested.document))) {
+    return nested;
+  }
+  const list = extractList(raw);
+  if (list.length) {
+    const match = matchByCpf(list, cpf);
+    if (match) return match;
+    if (list.length === 1) return list[0];
+  }
+  return null;
+};
+
 export async function rapidocFindByCpf(cpf: string): Promise<RapidocRecord | null> {
   const clean = onlyDigits(cpf);
   if (!clean) {
@@ -83,17 +135,36 @@ export async function rapidocFindByCpf(cpf: string): Promise<RapidocRecord | nul
   }
   // Endpoint v2 por CPF via path param
   const { data } = await rapidoc.get(`/beneficiaries/${clean}`);
-  if (isRecord(data)) return data;
-  // fallback para listagem com filtro, caso ambiente retorne envelope diferente
-  const list = extractList(data);
-  const found = matchByCpf(list, clean);
-  return found ?? null;
+  if (isExplicitNotFound(data)) {
+    return null;
+  }
+  if (isRecord(data) && data.success === false) {
+    const message = readMessage(data) || 'Rapidoc CPF lookup failed';
+    const error = new Error(message) as RapidocHintedError;
+    error.hint = 'rapidoc-cpf-failed';
+    error.status = 502;
+    error.upstream = data;
+    throw error;
+  }
+  const found = ensureBeneficiaryRecord(data, clean);
+  return found;
 }
 
 export async function rapidocListBeneficiaries(params?: Record<string, string | number | undefined>) {
   const query = params ?? {};
   // Endpoint Rapidoc: GET /beneficiaries
   const { data } = await rapidoc.get('/beneficiaries', { params: query });
+  if (isExplicitNotFound(data)) {
+    return [];
+  }
+  if (isRecord(data) && data.success === false) {
+    const message = readMessage(data) || 'Rapidoc list query failed';
+    const error = new Error(message);
+    (error as RapidocHintedError).hint = 'rapidoc-list-failed';
+    (error as RapidocHintedError).status = 502;
+    (error as RapidocHintedError).upstream = data;
+    throw error;
+  }
   return extractList(data);
 }
 
@@ -131,14 +202,6 @@ const asHintedError = (message: string, raw: unknown): RapidocHintedError => {
   error.status = 502;
   error.upstream = raw;
   return error;
-};
-
-const readMessage = (raw: unknown) => {
-  if (!isRecord(raw)) {
-    return '';
-  }
-  const message = raw.message ?? (isRecord(raw.error) ? raw.error.message : raw.error);
-  return typeof message === 'string' ? message : '';
 };
 
 const hasEmptyBeneficiaries = (raw: unknown) => {
@@ -182,7 +245,7 @@ export async function rapidocCreateOrResolveUuid(
     return { uuid: String(fallback.uuid), created: false, raw: created.raw };
   }
 
-  throw asHintedError('rapidoc-ensure: Beneficiário sem identificador retornado', created.raw);
+  throw asHintedError('rapidoc-ensure: Beneficiario sem identificador retornado', created.raw);
 }
 
 export async function getBeneficiaryByCPF(cpf: string) {
@@ -191,7 +254,7 @@ export async function getBeneficiaryByCPF(cpf: string) {
   if (found) {
     return found;
   }
-  const error = new Error('Beneficiário não encontrado');
+  const error = new Error('Beneficiario nao encontrado');
   (error as RapidocHintedError).hint = 'rapidoc-cpf-not-found';
   (error as RapidocHintedError).status = 404;
   throw error;
@@ -211,3 +274,5 @@ export async function deactivateBeneficiary(uuid: string) {
   const { data } = await rapidoc.delete(`/beneficiaries/${uuid}`);
   return data;
 }
+
+

@@ -22,27 +22,32 @@ const navLinks: NavLink[] = [
   {
     href: '/assinante/dashboard',
     label: 'Resumo do plano',
-    helper: 'Status do contrato e próximos passos',
+    helper: 'Status do contrato e proximos passos',
   },
   {
     href: '/assinante/agendamentos',
     label: 'Agendar consulta',
-    helper: 'Escolha especialidade, horário e beneficiário',
+    helper: 'Escolha especialidade, horario e beneficiario',
+  },
+  {
+    href: '/assinante/encaminhamentos',
+    label: 'Encaminhamentos',
+    helper: 'Baixe e acompanhe seus encaminhamentos',
   },
   {
     href: '/assinante/imediato',
     label: 'Atendimento imediato',
-    helper: 'Clínico geral via telemedicina',
+    helper: 'Clinico geral via telemedicina',
   },
   {
     href: '/assinante/dependentes',
     label: 'Dependentes',
-    helper: 'Cadastre e acompanhe seus vínculos',
+    helper: 'Cadastre e acompanhe seus vinculos',
   },
   {
     href: '/assinante/faturas',
     label: 'Pagamentos e faturas',
-    helper: 'Histórico de cobranças Asaas',
+    helper: 'Historico de cobrancas Asaas',
   },
   {
     href: '/assinante/perfil',
@@ -54,27 +59,31 @@ const navLinks: NavLink[] = [
 const metaByRoute: Record<string, SubscriberMeta> = {
   '/assinante/dashboard': {
     title: 'Central do assinante',
-    description: 'Controle total do plano, serviços ativos e pagamentos.',
+    description: 'Controle total do plano, servicos ativos e pagamentos.',
   },
   '/assinante/agendamentos': {
     title: 'Agendar novo atendimento',
-    description: 'Selecione beneficiário, especialidade e confirme seu horário.',
+    description: 'Selecione beneficiario, especialidade e confirme seu horario.',
+  },
+  '/assinante/encaminhamentos': {
+    title: 'Encaminhamentos do beneficiario',
+    description: 'Visualize e baixe encaminhamentos ativos diretamente da Rapidoc.',
   },
   '/assinante/imediato': {
     title: 'Atendimento imediato',
-    description: 'Fila de telemedicina com clínico geral (generalista).',
+    description: 'Fila de telemedicina com clinico geral (generalista).',
   },
   '/assinante/dependentes': {
-    title: 'Gestão de dependentes',
+    title: 'Gestao de dependentes',
     description: 'Convide familiares, acompanhe limites e status do plano.',
   },
   '/assinante/faturas': {
-    title: 'Faturas e histórico',
-    description: 'Acompanhe cobranças, status e comprovantes em tempo real.',
+    title: 'Faturas e historico',
+    description: 'Acompanhe cobrancas, status e comprovantes em tempo real.',
   },
   '/assinante/perfil': {
     title: 'Meu perfil',
-    description: 'Atualize dados de contato para garantir notificações rápidas.',
+    description: 'Atualize dados de contato para garantir notificacoes rapidas.',
   },
 };
 
@@ -165,7 +174,7 @@ export default function AssinanteLayout({ children }: { children: React.ReactNod
             <div className="rounded-2xl border border-emerald-200 bg-emerald-50/80 p-4 text-xs text-emerald-700">
               <p className="font-semibold">Precisa de ajuda?</p>
               <p className="mt-1">
-                Confira o laboratório Rapidoc para visualizar requisições em tempo real ou acesse o painel administrativo para
+                Confira o laboratorio Rapidoc para visualizar requisicoes em tempo real ou acesse o painel administrativo para
                 suporte especializado.
               </p>
               <div className="mt-3 flex gap-2">

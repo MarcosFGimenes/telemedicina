@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
     });
 
     // Endpoint Rapidoc: GET /beneficiaries
-    const rapidocList = await rapidocListBeneficiaries();
+    const rapidocList = await rapidocListBeneficiaries({ size: 200 });
     const beneficiaries: UnlinkedBeneficiary[] = [];
 
     rapidocList.forEach((entry) => {
@@ -56,13 +56,21 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ beneficiaries });
   } catch (error: unknown) {
-    const status = typeof (error as { statusCode?: number })?.statusCode === 'number'
-      ? (error as { statusCode: number }).statusCode
-      : 500;
-    if (status === 401 || status === 403) {
-      return NextResponse.json(ADMIN_ERROR, { status });
+    const statusFromError =
+      typeof (error as { status?: number })?.status === 'number'
+        ? (error as { status: number }).status
+        : typeof (error as { statusCode?: number })?.statusCode === 'number'
+          ? (error as { statusCode: number }).statusCode
+          : 500;
+    if (statusFromError === 401 || statusFromError === 403) {
+      return NextResponse.json(ADMIN_ERROR, { status: statusFromError });
     }
+    const hint = (error as { hint?: string })?.hint;
+    const message =
+      hint === 'rapidoc-list-failed'
+        ? 'Nao foi possivel consultar a lista de beneficiarios na Rapidoc.'
+        : 'Falha ao carregar beneficiarios sem acesso.';
     console.error('[admin][beneficiaries][unlinked]', error);
-    return NextResponse.json({ error: 'list_failed' }, { status: 500 });
+    return NextResponse.json({ error: 'list_failed', message }, { status: statusFromError || 500 });
   }
 }

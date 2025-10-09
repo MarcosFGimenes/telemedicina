@@ -1,3 +1,5 @@
+type RapidocRecord = Record<string, unknown>;
+
 export type BeneficiaryRecord = {
   uuid: string;
   cpf: string;
@@ -5,9 +7,23 @@ export type BeneficiaryRecord = {
   birthday?: string | null;
   phone?: string | null;
   email?: string | null;
+  zipCode?: string | null;
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  serviceType?: string | null;
+  paymentType?: string | null;
+  isActive?: boolean | null;
+  clientId?: string | null;
+  dependents?: RapidocRecord[] | null;
+  plans?: RapidocRecord[] | null;
+  raw?: RapidocRecord;
 };
 
-type RapidocRecord = Record<string, unknown>;
+const isRecord = (value: unknown): value is RapidocRecord =>
+  typeof value === 'object' && value !== null;
+
+const nestedRecordKeys = ['beneficiary', 'beneficiario', 'data', 'payload', 'result', 'item'];
 
 const pickString = (record: RapidocRecord, keys: string[]): string => {
   for (const key of keys) {
@@ -36,6 +52,38 @@ const pickDate = (record: RapidocRecord, keys: string[]): string | null => {
   return raw;
 };
 
+const pickBoolean = (record: RapidocRecord, keys: string[]): boolean | null => {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'boolean') {
+      return value;
+    }
+    if (typeof value === 'string') {
+      const normalized = value.trim().toLowerCase();
+      if (['true', '1', 'ativo', 'active'].includes(normalized)) {
+        return true;
+      }
+      if (['false', '0', 'inativo', 'inactive'].includes(normalized)) {
+        return false;
+      }
+    }
+  }
+  return null;
+};
+
+const pickRecordArray = (record: RapidocRecord, keys: string[]): RapidocRecord[] | null => {
+  for (const key of keys) {
+    const value = record[key];
+    if (Array.isArray(value)) {
+      const filtered = value.filter(isRecord);
+      if (filtered.length) {
+        return filtered;
+      }
+    }
+  }
+  return null;
+};
+
 const sanitizeCpf = (value: string) => value.replace(/\D/g, '');
 
 const maybeWithLeadingZeros = (value: string) => {
@@ -45,34 +93,108 @@ const maybeWithLeadingZeros = (value: string) => {
   return value;
 };
 
+const unwrapRecord = (record: RapidocRecord): RapidocRecord => {
+  for (const key of nestedRecordKeys) {
+    const nested = record[key];
+    if (isRecord(nested)) {
+      return nested;
+    }
+  }
+  return record;
+};
+
 export function normalizeBeneficiaryRecord(
   raw: RapidocRecord,
   fallbackCpf: string,
 ): BeneficiaryRecord {
+  const source = unwrapRecord(raw);
+
   const uuid =
+    pickString(source, ['uuid', 'id', 'beneficiaryUuid', 'beneficiaryId']) ||
     pickString(raw, ['uuid', 'id', 'beneficiaryUuid', 'beneficiaryId']) ||
+    pickString(source, ['codigo', 'code']) ||
     pickString(raw, ['codigo', 'code']);
 
   const cpf = sanitizeCpf(
-    pickString(raw, ['cpf', 'document', 'documentNumber', 'holder']) || fallbackCpf,
+    pickString(source, ['cpf', 'document', 'documentNumber', 'holder']) ||
+      pickString(raw, ['cpf', 'document', 'documentNumber', 'holder']) ||
+      fallbackCpf,
   );
 
   const name =
-    pickString(raw, ['name', 'fullName', 'beneficiaryName', 'nome']) || 'Beneficiário sem nome';
+    pickString(source, ['name', 'fullName', 'beneficiaryName', 'nome']) ||
+    pickString(raw, ['name', 'fullName', 'beneficiaryName', 'nome']) ||
+    'Beneficiario sem nome';
 
-  const birthday = pickDate(raw, ['birthday', 'birthDay', 'birthDate', 'dateOfBirth']);
+  const birthday =
+    pickDate(source, ['birthday', 'birthDay', 'birthDate', 'dateOfBirth']) ||
+    pickDate(raw, ['birthday', 'birthDay', 'birthDate', 'dateOfBirth']);
 
   const phone =
-    pickString(raw, ['phone', 'mobile', 'cellphone', 'cellPhone', 'phoneNumber']) || null;
+    pickString(source, ['phone', 'mobile', 'cellphone', 'cellPhone', 'phoneNumber']) ||
+    pickString(raw, ['phone', 'mobile', 'cellphone', 'cellPhone', 'phoneNumber']) ||
+    null;
 
-  const email = pickString(raw, ['email', 'login', 'contactEmail']) || null;
+  const email =
+    pickString(source, ['email', 'login', 'contactEmail']) ||
+    pickString(raw, ['email', 'login', 'contactEmail']) ||
+    null;
+
+  const zipCode =
+    pickString(source, ['zipCode', 'cep']) || pickString(raw, ['zipCode', 'cep']) || null;
+
+  const address =
+    pickString(source, ['address', 'logradouro', 'endereco']) ||
+    pickString(raw, ['address', 'logradouro', 'endereco']) ||
+    null;
+
+  const city =
+    pickString(source, ['city', 'cidade']) || pickString(raw, ['city', 'cidade']) || null;
+
+  const state =
+    pickString(source, ['state', 'estado', 'uf']) || pickString(raw, ['state', 'estado', 'uf']) || null;
+
+  const serviceType =
+    pickString(source, ['serviceType', 'service_type']) ||
+    pickString(raw, ['serviceType', 'service_type']) ||
+    null;
+
+  const paymentType =
+    pickString(source, ['paymentType', 'payment_type']) ||
+    pickString(raw, ['paymentType', 'payment_type']) ||
+    null;
+
+  const isActive =
+    pickBoolean(source, ['isActive', 'active']) ?? pickBoolean(raw, ['isActive', 'active']);
+
+  const plans = pickRecordArray(source, ['plans']) || pickRecordArray(raw, ['plans']);
+  const dependents =
+    pickRecordArray(source, ['dependents', 'dependentes']) ||
+    pickRecordArray(raw, ['dependents', 'dependentes']);
+
+  const fallbackCode =
+    pickString(source, ['codigo', 'code']) || pickString(raw, ['codigo', 'code']) || '';
 
   return {
-    uuid: uuid || `${cpf}-${maybeWithLeadingZeros(pickString(raw, ['codigo', 'code']) || '')}`,
+    uuid: uuid || `${cpf}-${maybeWithLeadingZeros(fallbackCode)}`,
     cpf,
     name,
     birthday,
     phone,
     email,
+    zipCode,
+    address,
+    city,
+    state,
+    serviceType,
+    paymentType,
+    isActive: typeof isActive === 'boolean' ? isActive : null,
+    clientId:
+      pickString(source, ['clientId', 'client_id']) ||
+      pickString(raw, ['clientId', 'client_id']) ||
+      null,
+    dependents: dependents || null,
+    plans: plans || null,
+    raw: source,
   };
 }

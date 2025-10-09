@@ -103,6 +103,13 @@ export default function AdminUsersPage() {
       setBeneficiaries(data.beneficiaries ?? []);
     } catch (error) {
       console.error('[admin][usuarios][beneficiaries]', error);
+      const status = (error as ErrorWithStatus)?.status;
+      if (status === 401 || status === 403) {
+        setActionError('Voce precisa de um acesso administrativo para listar beneficiarios.');
+      } else {
+        setActionError('Nao foi possivel carregar a lista de beneficiarios da Rapidoc.');
+      }
+      setBeneficiaries([]);
     } finally {
       setLoadingBeneficiaries(false);
     }

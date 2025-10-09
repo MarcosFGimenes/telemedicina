@@ -39,6 +39,14 @@ export async function GET(
 
   try {
     const { data } = await rapidoc.get(`/beneficiaries/${digits}`);
+    if (data && typeof data === 'object' && data !== null && (data as any).success === false) {
+      const message = messageFromUpstream(data) || 'Beneficiario nao encontrado.';
+      const status = /nao encontrado/i.test(message.toLowerCase()) ? 404 : 502;
+      return NextResponse.json(
+        { hint: 'rapidoc-beneficiary-cpf-get', upstreamStatus: status, message, upstream: data },
+        { status },
+      );
+    }
     return NextResponse.json(data);
   } catch (error) {
     if (axios.isAxiosError(error)) {
