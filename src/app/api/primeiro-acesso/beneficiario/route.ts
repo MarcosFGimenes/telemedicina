@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import axios from 'axios';
-import { rapidocFindByCpf, sanitizeCPF } from '@/lib/rapidocService';
-import { normalizeBeneficiaryRecord } from '@/utils/beneficiary';
+import type { BeneficiarySummary } from '@/lib/rapidocSync';
+import { fetchBeneficiaryByCpf } from '@/lib/rapidocSync';
+import { sanitizeCPF } from '@/lib/rapidocService';
 import { isValidCpf } from '@/utils/format';
 
 const toHint = (error: unknown) => {
@@ -22,14 +23,16 @@ export async function POST(req: NextRequest) {
     }
 
     // Endpoint Rapidoc: GET /beneficiaries/:cpf
-    let found: Record<string, unknown> | null = null;
+    let beneficiary: BeneficiarySummary | null = null;
     try {
-      const resolved = await rapidocFindByCpf(cpf);
-      if (resolved && typeof resolved === 'object') {
-        found = resolved as Record<string, unknown>;
-      }
+      const summary = await fetchBeneficiaryByCpf(cpf);
+      beneficiary = summary;
     } catch (error) {
       if (axios.isAxiosError(error) && error.response?.status === 404) {
+        return NextResponse.json({ error: 'not_found' }, { status: 404 });
+      }
+      const status = (error as { status?: number })?.status;
+      if (status === 404) {
         return NextResponse.json({ error: 'not_found' }, { status: 404 });
       }
       const hint = toHint(error);
@@ -41,17 +44,15 @@ export async function POST(req: NextRequest) {
       throw error;
     }
 
-    if (!found) {
+    if (!beneficiary) {
       return NextResponse.json({ error: 'not_found' }, { status: 404 });
     }
-
-    const beneficiary = normalizeBeneficiaryRecord(found, cpf);
 
     if (!beneficiary.uuid) {
       return NextResponse.json({ error: 'missing_uuid' }, { status: 502 });
     }
 
-    return NextResponse.json({ beneficiary, rapidoc: found });
+    return NextResponse.json({ beneficiary, rapidoc: beneficiary.raw });
   } catch (error) {
     console.error('[primeiro-acesso][beneficiario]', error);
     return NextResponse.json({ error: 'lookup_failed' }, { status: 500 });

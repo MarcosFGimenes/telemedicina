@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
+import type { DocumentReference } from 'firebase-admin/firestore';
 import { adminAuth, db } from '@/lib/firebaseAdmin';
 import { listAsaasPaymentsByCustomer } from '@/lib/asaasService';
+import { derivePlanMetadata } from '@/lib/planMetadata';
+import { fetchBeneficiaryByCpf } from '@/lib/rapidocSync';
+import { sanitizeCPF } from '@/lib/rapidocService';
 
 async function getAuth(req: NextRequest) {
   const authz = req.headers.get('authorization') || '';
@@ -25,24 +29,72 @@ export async function GET(req: NextRequest) {
   let snap = await users.where('authUid', '==', uid).limit(1).get();
   if (snap.empty && email) snap = await users.where('email', '==', email).limit(1).get();
 
-  const userDoc = snap.empty ? null : { id: snap.docs[0].id, ...(snap.docs[0].data() as Record<string, unknown>) };
-  // Enriquecimento: derivar planName a partir de serviceType quando ausente
-  if (userDoc && !userDoc['planName']) {
-    const st = String(userDoc['serviceType'] || '').toUpperCase();
-    const derived =
-      st === 'G'
-        ? 'Generalista'
-        : st === 'P'
-        ? 'Psicologia'
-        : st === 'GP'
-        ? 'Generalista + Psicologia'
-        : st === 'GS'
-        ? 'Generalista + Especialistas'
-        : st === 'GSP'
-        ? 'Generalista + Especialistas + Psicologia'
-        : '';
-    if (derived) {
-      (userDoc as Record<string, unknown>)['planName'] = derived;
+  let docRef: DocumentReference | null = null;
+  let docData: Record<string, unknown> | null = null;
+  if (!snap.empty) {
+    docRef = snap.docs[0].ref;
+    docData = snap.docs[0].data() as Record<string, unknown>;
+  }
+
+  const userDoc = docData ? { id: snap.docs[0].id, ...docData } : null;
+
+  if (docRef && docData) {
+    const cpf = sanitizeCPF(String(docData.cpf || ''));
+    const hasServiceType = typeof docData.serviceType === 'string' && docData.serviceType.trim().length > 0;
+    const hasPaymentType = typeof docData.paymentType === 'string' && docData.paymentType.trim().length > 0;
+    const hasUuid = typeof docData.beneficiaryUuid === 'string' && docData.beneficiaryUuid.trim().length > 0;
+
+    if (cpf && (!hasServiceType || !hasPaymentType || !hasUuid)) {
+      try {
+        const beneficiary = await fetchBeneficiaryByCpf(cpf);
+        const updates: Record<string, unknown> = {};
+        const now = new Date();
+
+        if (!hasUuid) updates.beneficiaryUuid = beneficiary.uuid;
+        if (!hasServiceType || String(docData.serviceType).toUpperCase() !== beneficiary.serviceType) {
+          updates.serviceType = beneficiary.serviceType;
+        }
+        if (!hasPaymentType || String(docData.paymentType).toUpperCase() !== beneficiary.paymentType) {
+          updates.paymentType = beneficiary.paymentType;
+        }
+        if (!docData.name && beneficiary.name) updates.name = beneficiary.name;
+        if (!docData.birthday && beneficiary.birthday) updates.birthday = beneficiary.birthday;
+        if (!docData.rapidocSnapshot) updates.rapidocSnapshot = beneficiary.raw;
+
+        const changed = Object.keys(updates).length > 0;
+        if (changed) {
+          updates.updatedAt = now;
+          await docRef.set(updates, { merge: true });
+          Object.assign(docData, updates);
+          if (userDoc) Object.assign(userDoc, updates);
+        }
+      } catch (error) {
+        console.warn('[me] Não foi possível sincronizar dados da Rapidoc', error);
+      }
+    }
+
+    if (userDoc) {
+      const metadata = await derivePlanMetadata(String(userDoc['serviceType'] || ''));
+      const updates: Record<string, unknown> = {};
+
+      if (metadata.planName && userDoc['planName'] !== metadata.planName) {
+        userDoc['planName'] = metadata.planName;
+        updates.planName = metadata.planName;
+      }
+      if (metadata.planDescription && userDoc['planDescription'] !== metadata.planDescription) {
+        userDoc['planDescription'] = metadata.planDescription;
+        updates.planDescription = metadata.planDescription;
+      }
+      if (metadata.maxDependents !== undefined && userDoc['maxDependents'] !== metadata.maxDependents) {
+        userDoc['maxDependents'] = metadata.maxDependents;
+        updates.maxDependents = metadata.maxDependents;
+      }
+
+      if (Object.keys(updates).length > 0) {
+        updates.updatedAt = new Date();
+        await docRef.set(updates, { merge: true });
+        Object.assign(docData, updates);
+      }
     }
   }
   const cpf = (userDoc?.cpf as string | undefined) || null;

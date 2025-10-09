@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, db } from '@/lib/firebaseAdmin';
-import { rapidocFindByCpf, sanitizeCPF } from '@/lib/rapidocService';
+import { derivePlanMetadata } from '@/lib/planMetadata';
+import { fetchBeneficiaryByCpf } from '@/lib/rapidocSync';
+import { sanitizeCPF } from '@/lib/rapidocService';
 import { isValidEmail, isValidPhone } from '@/utils/format';
 
 async function requireAuth(req: NextRequest) {
@@ -69,11 +71,21 @@ export async function POST(req: NextRequest) {
     // tenta vincular beneficiário automaticamente
     if (cpf && (!payload?.beneficiaryUuid || !String(payload.beneficiaryUuid))) {
       try {
-        const found = await rapidocFindByCpf(cpf);
-        const uuid = (found?.uuid as string | undefined) || (found?.id as string | undefined);
-        if (uuid) {
-          await ref.set({ beneficiaryUuid: uuid, status: 'active', updatedAt: new Date() }, { merge: true });
-        }
+        const beneficiary = await fetchBeneficiaryByCpf(cpf);
+        const metadata = await derivePlanMetadata(beneficiary.serviceType);
+        const updates: Record<string, unknown> = {
+          beneficiaryUuid: beneficiary.uuid,
+          status: 'active',
+          serviceType: beneficiary.serviceType,
+          paymentType: beneficiary.paymentType,
+          updatedAt: new Date(),
+        };
+        if (!payload?.name && beneficiary.name) updates.name = beneficiary.name;
+        if (!payload?.birthday && beneficiary.birthday) updates.birthday = beneficiary.birthday;
+        if (metadata.planName) updates.planName = metadata.planName;
+        if (metadata.planDescription) updates.planDescription = metadata.planDescription;
+        if (metadata.maxDependents !== undefined) updates.maxDependents = metadata.maxDependents;
+        await ref.set(updates, { merge: true });
       } catch (err) {
         console.warn('[auth/cpf/link] rapidoc lookup failed', err);
       }
