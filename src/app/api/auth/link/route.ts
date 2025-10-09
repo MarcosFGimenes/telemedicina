@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, db } from '@/lib/firebaseAdmin';
-import { sanitizeCPF, rapidocFindByCpf } from '@/lib/rapidocService';
+import { derivePlanMetadata } from '@/lib/planMetadata';
+import { fetchBeneficiaryByCpf } from '@/lib/rapidocSync';
+import { sanitizeCPF } from '@/lib/rapidocService';
 
 export async function POST(req: NextRequest) {
   try {
@@ -33,14 +35,22 @@ export async function POST(req: NextRequest) {
           const cpf = sanitizeCPF(String(data?.cpf || ''));
           const hasUuid = Boolean(data?.beneficiaryUuid);
           if (cpf && !hasUuid) {
-            const found = await rapidocFindByCpf(cpf);
-            const uuid = (found?.uuid as string | undefined) || (found?.id as string | undefined) || '';
-            if (uuid) {
-              await ref.set({ beneficiaryUuid: uuid, status: 'active', updatedAt: new Date() }, { merge: true });
-            }
+            const beneficiary = await fetchBeneficiaryByCpf(cpf);
+            const metadata = await derivePlanMetadata(beneficiary.serviceType);
+            const updates: Record<string, unknown> = {
+              beneficiaryUuid: beneficiary.uuid,
+              status: 'active',
+              serviceType: beneficiary.serviceType,
+              paymentType: beneficiary.paymentType,
+              updatedAt: new Date(),
+            };
+            if (metadata.planName) updates.planName = metadata.planName;
+            if (metadata.planDescription) updates.planDescription = metadata.planDescription;
+            if (metadata.maxDependents !== undefined) updates.maxDependents = metadata.maxDependents;
+            await ref.set(updates, { merge: true });
           }
         } catch (e) {
-          console.error('[auth/link] failed to auto-resolve uuid by cpf', e);
+          console.error('[auth/link] failed to auto-resolve beneficiary data by cpf', e);
         }
         return NextResponse.json({ ok: true, linked: true, userId: byEmail.docs[0].id });
       }

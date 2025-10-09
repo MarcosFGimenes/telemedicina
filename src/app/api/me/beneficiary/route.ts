@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, db } from '@/lib/firebaseAdmin';
+import { derivePlanMetadata } from '@/lib/planMetadata';
 import { sanitizeCPF } from '@/lib/rapidocService';
 import { isValidEmail, isValidPhone } from '@/utils/format';
 
@@ -102,7 +103,13 @@ export async function POST(req: NextRequest) {
     if (address) payload.address = address;
     if (city) payload.city = city;
     if (state) payload.state = state;
-    if (serviceType) payload.serviceType = serviceType;
+    if (serviceType) {
+      payload.serviceType = serviceType;
+      const metadata = await derivePlanMetadata(serviceType);
+      if (metadata.planName) payload.planName = metadata.planName;
+      if (metadata.planDescription) payload.planDescription = metadata.planDescription;
+      if (metadata.maxDependents !== undefined) payload.maxDependents = metadata.maxDependents;
+    }
     if (paymentType) payload.paymentType = paymentType;
     if (typeof isActive === 'boolean') payload.isActive = isActive;
     if (clientId) payload.clientId = clientId;

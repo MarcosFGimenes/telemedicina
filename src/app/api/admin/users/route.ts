@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, db } from '@/lib/firebaseAdmin';
+import { derivePlanMetadata } from '@/lib/planMetadata';
+import { fetchBeneficiaryByCpf } from '@/lib/rapidocSync';
 import { sanitizeCPF } from '@/lib/rapidocService';
 import { isValidEmail, isValidPassword } from '@/utils/format';
 import { requireAdmin } from './utils';
@@ -14,6 +16,9 @@ type AdminUserPayload = {
   status?: string | null;
   cpf?: string | null;
   name?: string | null;
+  serviceType?: string | null;
+  paymentType?: string | null;
+  planName?: string | null;
   role?: string | null;
   lastSignIn?: string | null;
   createdAt?: string | null;
@@ -43,6 +48,9 @@ export async function GET(req: NextRequest) {
         status: (doc?.status as string | undefined) ?? null,
         cpf: (doc?.cpf as string | undefined) ?? null,
         name: (doc?.name as string | undefined) ?? null,
+        serviceType: (doc?.serviceType as string | undefined) ?? null,
+        paymentType: (doc?.paymentType as string | undefined) ?? null,
+        planName: (doc?.planName as string | undefined) ?? null,
         role: (doc?.role as string | undefined) ?? null,
         lastSignIn: user.metadata.lastSignInTime ?? null,
         createdAt: user.metadata.creationTime ?? null,
@@ -93,7 +101,7 @@ export async function POST(req: NextRequest) {
     const user = await adminAuth.createUser({ email, password, disabled: false });
 
     const now = new Date();
-    await db.collection('users').add({
+    const docPayload: Record<string, unknown> = {
       authUid: user.uid,
       email,
       beneficiaryUuid,
@@ -103,16 +111,45 @@ export async function POST(req: NextRequest) {
       cpf: cpf || undefined,
       name: name || undefined,
       createdBy: decoded.uid,
-    });
+    };
+
+    if (cpf) {
+      try {
+        const beneficiary = await fetchBeneficiaryByCpf(cpf);
+        docPayload.beneficiaryUuid = beneficiary.uuid;
+        docPayload.serviceType = beneficiary.serviceType;
+        docPayload.paymentType = beneficiary.paymentType;
+        docPayload.rapidocSnapshot = beneficiary.raw;
+        if (!docPayload.name && beneficiary.name) {
+          docPayload.name = beneficiary.name;
+        }
+        if (beneficiary.birthday) {
+          docPayload.birthday = beneficiary.birthday;
+        }
+        const metadata = await derivePlanMetadata(beneficiary.serviceType);
+        if (metadata.planName) docPayload.planName = metadata.planName;
+        if (metadata.planDescription) docPayload.planDescription = metadata.planDescription;
+        if (metadata.maxDependents !== undefined) {
+          docPayload.maxDependents = metadata.maxDependents;
+        }
+      } catch (error) {
+        console.error('[admin][users][POST] Falha ao sincronizar beneficiário Rapidoc', error);
+      }
+    }
+
+    await db.collection('users').add(docPayload);
 
     const payload: AdminUserPayload = {
       uid: user.uid,
       email,
-      beneficiaryUuid,
+      beneficiaryUuid: (docPayload.beneficiaryUuid as string | undefined) ?? beneficiaryUuid ?? null,
       disabled: false,
       status: 'active',
-      cpf: cpf || null,
-      name: name || null,
+      cpf: (docPayload.cpf as string | undefined) ?? cpf || null,
+      name: (docPayload.name as string | undefined) ?? name || null,
+      serviceType: (docPayload.serviceType as string | undefined) ?? null,
+      paymentType: (docPayload.paymentType as string | undefined) ?? null,
+      planName: (docPayload.planName as string | undefined) ?? null,
       role: null,
       lastSignIn: null,
       createdAt: user.metadata.creationTime ?? now.toISOString(),
