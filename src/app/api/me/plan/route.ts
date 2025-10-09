@@ -14,25 +14,32 @@ async function getAuth(req: NextRequest) {
   }
 }
 
-async function derivePlanName(serviceType?: string) {
+type PlanMetadata = { planName: string; maxDependents: number | null | undefined };
+
+async function derivePlanMetadata(serviceType?: string): Promise<PlanMetadata> {
   const st = (serviceType || '').toUpperCase();
-  if (!st) return '';
+  if (!st) {
+    return { planName: '', maxDependents: undefined };
+  }
+
   const plan = await getPlan(st);
-  if (plan) return plan.name;
+  if (plan) {
+    return { planName: plan.name, maxDependents: plan.maxDependents ?? null };
+  }
 
   switch (st) {
     case 'G':
-      return 'Generalista';
+      return { planName: 'Generalista', maxDependents: null };
     case 'P':
-      return 'Psicologia';
+      return { planName: 'Psicologia', maxDependents: null };
     case 'GP':
-      return 'Generalista + Psicologia';
+      return { planName: 'Generalista + Psicologia', maxDependents: null };
     case 'GS':
-      return 'Generalista + Especialistas';
+      return { planName: 'Generalista + Especialistas', maxDependents: null };
     case 'GSP':
-      return 'Generalista + Especialistas + Psicologia';
+      return { planName: 'Generalista + Especialistas + Psicologia', maxDependents: null };
     default:
-      return '';
+      return { planName: '', maxDependents: null };
   }
 }
 
@@ -45,7 +52,8 @@ export async function PUT(req: NextRequest) {
   const payload = (await req.json()) as { serviceType?: string; paymentType?: string; planName?: string };
   const serviceType = (payload.serviceType || '').toUpperCase();
   const paymentType = payload.paymentType || undefined;
-  const planName = payload.planName || (await derivePlanName(serviceType));
+  const metadata = await derivePlanMetadata(serviceType);
+  const planName = payload.planName || metadata.planName;
 
   const users = db.collection('users');
   let snap = await users.where('authUid', '==', uid).limit(1).get();
@@ -57,8 +65,9 @@ export async function PUT(req: NextRequest) {
   if (serviceType) updates.serviceType = serviceType;
   if (paymentType) updates.paymentType = paymentType;
   if (planName) updates.planName = planName;
+  if (metadata.maxDependents !== undefined) updates.maxDependents = metadata.maxDependents;
 
   await ref.set(updates, { merge: true });
-  return NextResponse.json({ ok: true, planName, serviceType, paymentType });
+  return NextResponse.json({ ok: true, planName, serviceType, paymentType, maxDependents: metadata.maxDependents });
 }
 

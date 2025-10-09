@@ -50,7 +50,9 @@ export default function AssinanteDependentesPage() {
           axios.get('/api/me', { headers: { Authorization: `Bearer ${token}` } }),
           axios.get('/api/dependents', { headers: { Authorization: `Bearer ${token}` } }),
         ]);
-        setLimit(Number(meRes?.data?.user?.maxDependents ?? NaN));
+        const rawLimit = meRes?.data?.user?.maxDependents;
+        const parsed = Number(rawLimit);
+        setLimit(Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : null);
         const items = Array.isArray(depRes?.data?.dependents) ? depRes.data.dependents : [];
         setDependents(items.filter((d: any) => d?.uuid).map((d: any) => ({ uuid: String(d.uuid), name: d?.name, status: d?.status })));
       } catch {}
@@ -110,7 +112,7 @@ export default function AssinanteDependentesPage() {
     }
   };
 
-  const reachedLimit = limit != null && !Number.isNaN(limit) && dependents.length >= Number(limit);
+  const reachedLimit = limit != null && dependents.length >= limit;
 
   return (
     <div className="space-y-6">
@@ -121,7 +123,7 @@ export default function AssinanteDependentesPage() {
             <p className="text-sm text-zinc-600">Cadastre novos beneficiários e acompanhe o limite disponível.</p>
           </div>
           <div className="rounded-full border border-emerald-200 bg-emerald-50/80 px-4 py-1 text-xs font-semibold text-emerald-700">
-            {dependents.length} cadastrados{limit && !Number.isNaN(limit) ? ` / ${limit}` : ''}
+            {dependents.length} cadastrados{limit != null ? ` / ${limit}` : ' / ilimitado'}
           </div>
         </div>
 
