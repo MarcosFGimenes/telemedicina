@@ -2,18 +2,11 @@
 import axios from 'axios';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import PixViewer from '@/components/PixViewer';
-import type { BillingType, CheckoutRequestBody, CheckoutResponse, StatusResponse, PAYMENT_SUCCESS_STATUSES } from '@/types/checkout';
+import type { BillingType, CheckoutRequestBody, CheckoutResponse, StatusResponse } from '@/types/checkout';
+import { PAYMENT_SUCCESS_STATUSES } from '@/types/checkout';
+import type { PlanDefinition } from '@/types/plans';
 
-type PlanOption = {
-  paymentType: 'S' | 'A';
-  plan: {
-    uuid: string;
-    name: string;
-    description?: string;
-    serviceType: 'G' | 'P' | 'GP' | 'GS' | 'GSP';
-    specialties?: { name: string; uuid: string }[];
-  };
-};
+type PlanOption = PlanDefinition;
 
 type BeneficiaryForm = {
   name: string;
@@ -26,7 +19,7 @@ type BeneficiaryForm = {
   city: string;
   state: string;
   paymentType: 'S' | 'A';
-  serviceType: 'G' | 'P' | 'GP' | 'GS' | 'GSP';
+  serviceType: string;
   holder: string;
   general: string;
 };
@@ -47,25 +40,51 @@ const SAMPLE: BeneficiaryForm = {
   general: 'General purpose',
 };
 
+const extractMessage = (payload: unknown): string | null => {
+  if (!payload || typeof payload !== 'object') return null;
+  const record = payload as Record<string, unknown>;
+  const keys = ['error', 'message', 'backend'] as const;
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value;
+    }
+  }
+  return null;
+};
+
+const getErrorMessage = (error: unknown, fallback: string) => {
+  if (axios.isAxiosError(error)) {
+    const message = extractMessage(error.response?.data);
+    if (message) return message;
+  }
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  const message = extractMessage(error);
+  return message || fallback;
+};
+
 export default function TesteRapidocPage() {
   const [plans, setPlans] = useState<PlanOption[]>([]);
   const [loadingPlans, setLoadingPlans] = useState(false);
   const [plansError, setPlansError] = useState('');
-  const [selectedPlanUuid, setSelectedPlanUuid] = useState('');
+  const [selectedPlanId, setSelectedPlanId] = useState('');
 
   const [form, setForm] = useState<BeneficiaryForm>(SAMPLE);
   const [resp, setResp] = useState<unknown>(null);
   const [err, setErr] = useState('');
 
   const [billingType, setBillingType] = useState<BillingType>('PIX');
-  const [value, setValue] = useState<string>('49.90');
 
   const [payment, setPayment] = useState<CheckoutResponse | null>(null);
   const [status, setStatus] = useState<string>('');
   const [checking, setChecking] = useState(false);
   const [polling, setPolling] = useState(false);
+  const [subscriptionDetails, setSubscriptionDetails] = useState<unknown>(null);
+  const [subscriptionPayments, setSubscriptionPayments] = useState<unknown>(null);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
-  const successSet = useRef(new Set(['RECEIVED','CONFIRMED'] satisfies typeof PAYMENT_SUCCESS_STATUSES[number][]));
+  const successSet = useRef(new Set<string>(PAYMENT_SUCCESS_STATUSES));
 
   useEffect(() => {
     const fetchPlans = async () => {
@@ -73,11 +92,11 @@ export default function TesteRapidocPage() {
         setLoadingPlans(true);
         setPlansError('');
         const { data } = await axios.get<PlanOption[]>('/api/rapidoc/planos');
-        setPlans(Array.isArray(data) ? data : []);
-      } catch (e: any) {
-        setPlansError(
-          e?.response?.data?.error || e?.message || 'Erro ao buscar planos da Rapidoc',
-        );
+        const fetched = Array.isArray(data) ? data : [];
+        setPlans(fetched);
+        setSelectedPlanId((current) => current || fetched[0]?.id || '');
+      } catch (error: unknown) {
+        setPlansError(getErrorMessage(error, 'Erro ao buscar planos da Rapidoc'));
       } finally {
         setLoadingPlans(false);
       }
@@ -90,17 +109,20 @@ export default function TesteRapidocPage() {
   };
 
   const selectedPlan = useMemo(
-    () => plans.find((p) => p.plan.uuid === selectedPlanUuid) || null,
-    [plans, selectedPlanUuid],
+    () => plans.find((plan) => plan.id === selectedPlanId) || null,
+    [plans, selectedPlanId],
   );
+
+  const displayValue = useMemo(() => {
+    if (!selectedPlan) return '';
+    return selectedPlan.value.toFixed(2);
+  }, [selectedPlan]);
 
   useEffect(() => {
     if (selectedPlan) {
-      // Ajusta paymentType e serviceType conforme o plano selecionado
       setForm((state) => ({
         ...state,
-        paymentType: selectedPlan.paymentType,
-        serviceType: selectedPlan.plan.serviceType,
+        serviceType: selectedPlan.id as BeneficiaryForm['serviceType'],
       }));
     }
   }, [selectedPlan]);
@@ -112,8 +134,15 @@ export default function TesteRapidocPage() {
       setPayment(null);
       setStatus('');
       stopPolling();
+      setSubscriptionDetails(null);
+      setSubscriptionPayments(null);
 
-      const amount = Number(String(value).replace(',', '.')) || 0;
+      if (!selectedPlan) {
+        setErr('Selecione um plano antes de gerar a cobrança.');
+        return;
+      }
+
+      const amount = Number(selectedPlan.value) || 0;
       if (!amount || amount <= 0) {
         setErr('Informe um valor válido (> 0).');
         return;
@@ -122,7 +151,7 @@ export default function TesteRapidocPage() {
       const payload: CheckoutRequestBody = {
         billingType,
         value: amount,
-        description: `Teste Rapidoc - ${selectedPlan?.plan.name ?? 'Plano'}`,
+        description: `Teste Rapidoc - ${selectedPlan.name}`,
         name: form.name,
         cpf: form.cpf,
         email: form.email,
@@ -136,39 +165,67 @@ export default function TesteRapidocPage() {
         serviceType: form.serviceType,
         holder: form.holder,
         general: form.general,
+        planId: selectedPlan.id,
       };
 
       const { data } = await axios.post<CheckoutResponse>('/api/checkout/pagar', payload);
       setPayment(data);
       setStatus(data.status);
 
-      // inicia polling automático para status
-      startPolling();
-    } catch (e: any) {
-      setErr(
-        e?.response?.data?.error ||
-          e?.response?.data?.message ||
-          e?.message ||
-          'Erro ao gerar cobrança',
-      );
+      if (data.paymentId) {
+        // inicia polling automático para status quando há cobrança única
+        startPolling();
+      }
+    } catch (error: unknown) {
+      setErr(getErrorMessage(error, 'Erro ao gerar cobrança'));
     }
   };
 
   const checkStatus = async () => {
+    if (payment?.subscriptionId) {
+      try {
+        setChecking(true);
+        const { data } = await axios.get<Record<string, unknown>>(
+          `/api/asaas/subscriptions/${payment.subscriptionId}`,
+        );
+        const rawStatus = data['status'];
+        setStatus(typeof rawStatus === 'string' ? rawStatus : '');
+        setSubscriptionDetails(data);
+      } catch (error: unknown) {
+        setErr(getErrorMessage(error, 'Falha ao consultar assinatura'));
+      } finally {
+        setChecking(false);
+      }
+      return;
+    }
+
     if (!payment?.paymentId) return;
     try {
       setChecking(true);
       const { data } = await axios.get<StatusResponse>(`/api/checkout/status/${payment.paymentId}`);
       setStatus(data.status);
       // se confirmado, cria beneficiário automaticamente
-      if (successSet.current.has(String(data.status) as any)) {
+      if (successSet.current.has(String(data.status))) {
         await createBeneficiary();
         stopPolling();
       }
-    } catch (e: any) {
-      setErr(e?.response?.data?.message || e?.message || 'Falha ao checar status');
+    } catch (error: unknown) {
+      setErr(getErrorMessage(error, 'Falha ao checar status'));
     } finally {
       setChecking(false);
+    }
+  };
+
+  const listSubscriptionPayments = async () => {
+    if (!payment?.subscriptionId) return;
+    try {
+      setErr('');
+      const { data } = await axios.get(
+        `/api/asaas/subscriptions/${payment.subscriptionId}/payments`,
+      );
+      setSubscriptionPayments(data);
+    } catch (error: unknown) {
+      setErr(getErrorMessage(error, 'Falha ao listar cobranças da assinatura'));
     }
   };
 
@@ -195,14 +252,8 @@ export default function TesteRapidocPage() {
       const payload = [form];
       const { data } = await axios.post('/api/rapidoc/beneficiaries', payload);
       setResp(data);
-    } catch (e: any) {
-      setErr(
-        e?.response?.data?.backend ||
-          e?.response?.data?.message ||
-          e?.response?.data?.error ||
-          e?.message ||
-          'Erro ao criar beneficiário',
-      );
+    } catch (error: unknown) {
+      setErr(getErrorMessage(error, 'Erro ao criar beneficiário'));
     }
   };
 
@@ -226,20 +277,23 @@ export default function TesteRapidocPage() {
               <label className="mb-1 block text-sm font-medium">Plano</label>
               <select
                 className="w-full rounded-md border px-3 py-2"
-                value={selectedPlanUuid}
-                onChange={(e) => setSelectedPlanUuid(e.target.value)}
+                value={selectedPlanId}
+                onChange={(e) => setSelectedPlanId(e.target.value)}
               >
                 <option value="">Selecione um plano…</option>
                 {plans.map((opt) => (
-                  <option key={opt.plan.uuid} value={opt.plan.uuid}>
-                    {opt.plan.name} – {opt.plan.serviceType} / {opt.paymentType}
+                  <option key={opt.id} value={opt.id}>
+                    {opt.name} – R$ {opt.value.toFixed(2)}
                   </option>
                 ))}
               </select>
               {selectedPlan && (
-                <p className="mt-2 text-xs text-zinc-600">
-                  {selectedPlan.plan.description || 'Sem descrição.'}
-                </p>
+                <div className="mt-2 space-y-1 rounded-md bg-emerald-50/60 p-3 text-xs text-emerald-700">
+                  <p className="font-semibold uppercase tracking-wide">
+                    Código: {selectedPlan.id}
+                  </p>
+                  <p>{selectedPlan.description || 'Sem descrição.'}</p>
+                </div>
               )}
             </div>
 
@@ -253,21 +307,18 @@ export default function TesteRapidocPage() {
                 <option value="S">S</option>
                 <option value="A">A</option>
               </select>
+              <p className="mt-2 text-xs text-zinc-500">
+                Use S para assinatura recorrente ou A para cobrança avulsa.
+              </p>
             </div>
-
             <div className="rounded-lg border bg-white p-3">
-              <label className="mb-1 block text-sm font-medium">serviceType</label>
-              <select
-                className="w-full rounded-md border px-3 py-2"
-                value={form.serviceType}
-                onChange={(e) => onChange('serviceType', e.target.value)}
-              >
-                <option value="G">G</option>
-                <option value="P">P</option>
-                <option value="GP">GP</option>
-                <option value="GS">GS</option>
-                <option value="GSP">GSP</option>
-              </select>
+              <p className="text-sm font-medium text-zinc-700">Service Type</p>
+              <p className="mt-2 font-mono text-sm uppercase text-zinc-700">
+                {form.serviceType || '—'}
+              </p>
+              <p className="mt-1 text-xs text-zinc-500">
+                Definido automaticamente pelo plano selecionado.
+              </p>
             </div>
           </div>
         )}
@@ -325,14 +376,17 @@ export default function TesteRapidocPage() {
             <label className="mb-1 block text-sm font-medium">Valor (R$)</label>
             <input
               className="w-full rounded-md border px-3 py-2"
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              placeholder="49.90"
+              value={displayValue}
+              readOnly
+              placeholder="Selecione um plano"
             />
+            <p className="mt-1 text-xs text-zinc-500">
+              Valor calculado a partir da configuração oficial do plano.
+            </p>
           </div>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button
             onClick={createCharge}
             className="rounded-md bg-zinc-900 px-4 py-2 text-white"
@@ -341,7 +395,7 @@ export default function TesteRapidocPage() {
           </button>
           <button
             onClick={polling ? stopPolling : startPolling}
-            disabled={!payment}
+            disabled={!payment?.paymentId}
             className="rounded-md border border-zinc-300 px-4 py-2 disabled:opacity-60"
           >
             {polling ? 'Parar polling' : 'Iniciar polling'}
@@ -351,8 +405,20 @@ export default function TesteRapidocPage() {
             disabled={!payment || checking}
             className="rounded-md border border-zinc-300 px-4 py-2 disabled:opacity-60"
           >
-            {checking ? 'Verificando…' : 'Verificar status'}
+            {checking
+              ? 'Verificando…'
+              : payment?.subscriptionId
+                ? 'Verificar assinatura'
+                : 'Verificar status'}
           </button>
+          {payment?.subscriptionId && (
+            <button
+              onClick={listSubscriptionPayments}
+              className="rounded-md border border-zinc-300 px-4 py-2 disabled:opacity-60"
+            >
+              Cobranças da assinatura
+            </button>
+          )}
         </div>
 
         {payment && payment.invoiceUrl && (
@@ -377,10 +443,44 @@ export default function TesteRapidocPage() {
 
         {payment && (
           <div className="rounded-md border border-dashed border-zinc-300 p-3 text-xs">
+            {payment.subscriptionId ? (
+              <>
+                <p>
+                  Subscription ID:{' '}
+                  <span className="font-mono text-sm">{payment.subscriptionId}</span>
+                </p>
+                <p>Status: {status || payment.status}</p>
+              </>
+            ) : (
+              <>
+                <p>
+                  Payment ID:{' '}
+                  <span className="font-mono text-sm">{payment.paymentId}</span>
+                </p>
+                <p>Status: {status || payment.status}</p>
+              </>
+            )}
             <p>
-              Payment ID: <span className="font-mono text-sm">{payment.paymentId}</span>
+              Valor: <span className="font-semibold">R$ {displayValue || '0,00'}</span>
             </p>
-            <p>Status: {status || payment.status}</p>
+          </div>
+        )}
+
+        {subscriptionDetails && (
+          <div className="space-y-2">
+            <h3 className="text-sm font-semibold text-zinc-700">Detalhes da assinatura</h3>
+            <pre className="whitespace-pre-wrap rounded-lg border bg-white p-3 text-xs">
+              {JSON.stringify(subscriptionDetails, null, 2)}
+            </pre>
+          </div>
+        )}
+
+        {subscriptionPayments && (
+          <div className="space-y-2">
+            <h3 className="text-sm font-semibold text-zinc-700">Cobranças programadas</h3>
+            <pre className="whitespace-pre-wrap rounded-lg border bg-white p-3 text-xs">
+              {JSON.stringify(subscriptionPayments, null, 2)}
+            </pre>
           </div>
         )}
 

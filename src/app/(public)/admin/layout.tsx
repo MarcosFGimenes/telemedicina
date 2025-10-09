@@ -39,6 +39,11 @@ const navLinks: NavLink[] = [
     label: 'Financeiro',
     helper: 'Cobranças Asaas e conciliações',
   },
+  {
+    href: '/admin/planos',
+    label: 'Planos',
+    helper: 'Cadastre e atualize planos e valores padrão',
+  },
 ];
 
 const metaByRoute: Record<string, LayoutMeta> = {
@@ -57,6 +62,10 @@ const metaByRoute: Record<string, LayoutMeta> = {
   '/admin/financeiro': {
     title: 'Monitoramento financeiro',
     description: 'Audite cobranças, confirme pagamentos e libere planos.',
+  },
+  '/admin/planos': {
+    title: 'Gestão de planos',
+    description: 'Mantenha os planos Rapidoc com descrições e valores oficiais.',
   },
 };
 

@@ -2,6 +2,7 @@
 
 import { useAuthContext } from '@/components/auth/AuthProvider';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { PlanDefinition } from '@/types/plans';
 
 type UserDoc = {
   name?: string;
@@ -44,11 +45,7 @@ type Beneficiary = {
   specialties?: PlanSpecialty[];
 };
 
-type PlanOption = {
-  plan: { uuid: string; name: string; serviceType: string };
-  paymentType: 'S' | 'A';
-  specialties?: PlanSpecialty[];
-};
+type PlanOption = PlanDefinition;
 
 type BeneficiaryForm = {
   name?: string;
@@ -525,16 +522,15 @@ export default function PerfilPage() {
             <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {plans.map((option) => (
                 <button
-                  key={option.plan.uuid}
+                  key={option.id}
                   onClick={() => {
-                    handleBeneficiaryChange('serviceType', String(option.plan.serviceType).toUpperCase());
-                    handleBeneficiaryChange('paymentType', option.paymentType);
+                    handleBeneficiaryChange('serviceType', option.id.toUpperCase());
                   }}
                   className="rounded-2xl border border-white/80 bg-white/80 p-3 text-left text-sm text-zinc-700 transition hover:border-emerald-200 hover:bg-emerald-50/70"
                 >
-                  <span className="block font-semibold text-emerald-700">{option.plan.name}</span>
+                  <span className="block font-semibold text-emerald-700">{option.name}</span>
                   <span className="text-xs text-zinc-500">
-                    {String(option.plan.serviceType).toUpperCase()} • {option.paymentType}
+                    {option.id.toUpperCase()} • R$ {option.value.toFixed(2)}
                   </span>
                 </button>
               ))}

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, db } from '@/lib/firebaseAdmin';
+import { getPlan } from '@/lib/plansStore';
 
 async function getAuth(req: NextRequest) {
   const authz = req.headers.get('authorization') || '';
@@ -13,8 +14,12 @@ async function getAuth(req: NextRequest) {
   }
 }
 
-function derivePlanName(serviceType?: string) {
+async function derivePlanName(serviceType?: string) {
   const st = (serviceType || '').toUpperCase();
+  if (!st) return '';
+  const plan = await getPlan(st);
+  if (plan) return plan.name;
+
   switch (st) {
     case 'G':
       return 'Generalista';
@@ -40,7 +45,7 @@ export async function PUT(req: NextRequest) {
   const payload = (await req.json()) as { serviceType?: string; paymentType?: string; planName?: string };
   const serviceType = (payload.serviceType || '').toUpperCase();
   const paymentType = payload.paymentType || undefined;
-  const planName = payload.planName || derivePlanName(serviceType);
+  const planName = payload.planName || (await derivePlanName(serviceType));
 
   const users = db.collection('users');
   let snap = await users.where('authUid', '==', uid).limit(1).get();

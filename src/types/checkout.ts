@@ -28,6 +28,7 @@ export type CheckoutRequestBody = {
   serviceType?: string;
   holder?: string;
   general?: string;
+  planId?: string;
   creditCard?: {
     holderName: string;
     number: string;
@@ -65,7 +66,8 @@ export type AsaasPixQrCode = {
 };
 
 export type CheckoutResponse = {
-  paymentId: string;
+  paymentId?: string;
+  subscriptionId?: string;
   status: string;
   invoiceUrl?: string | null;
   pix?: {
@@ -74,6 +76,8 @@ export type CheckoutResponse = {
     expirationDate?: string | null;
   } | null;
   customerId: string;
+  value?: number;
+  description?: string | null;
 };
 
 export type StatusResponse = {
