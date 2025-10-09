@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { asaas } from '@/lib/asaas';
 import { db } from '@/lib/firebaseAdmin';
 import { digitsOnly } from '@/lib/beneficiaryPayload';
+import { getPlan } from '@/lib/plansStore';
 import {
   type AsaasPayment,
   type AsaasPixQrCode,
@@ -25,12 +26,14 @@ const formatDate = (value?: string) => {
   return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}-${String(parsed.getDate()).padStart(2, '0')}`;
 };
 
-async function resolveCustomer(body: CheckoutRequestBody, cpfDigits: string) {
+async function resolveCustomer(
+  body: CheckoutRequestBody,
+  cpfDigits: string,
+  normalizedPaymentType: string,
+  normalizedServiceType: string,
+  planName: string,
+) {
   const normalizedBirthday = body.birthday?.trim() || null;
-  const paymentTypeFromRequest = body.paymentType?.trim().toUpperCase();
-  const serviceTypeFromRequest = body.serviceType?.trim().toUpperCase();
-  const normalizedPaymentType = paymentTypeFromRequest || 'S';
-  const normalizedServiceType = serviceTypeFromRequest || 'GS';
   const normalizedHolder = digitsOnly(body.holder) || null;
   const normalizedGeneral = body.general?.trim() || null;
   const normalizedPhone = body.mobilePhone ? digitsOnly(body.mobilePhone) || body.mobilePhone : null;
@@ -79,13 +82,10 @@ async function resolveCustomer(body: CheckoutRequestBody, cpfDigits: string) {
     assignIfChanged('state', body.state ?? null);
     assignIfChanged('birthday', normalizedBirthday);
 
-    if (paymentTypeFromRequest) {
-      assignIfChanged('paymentType', normalizedPaymentType);
-    }
-
-    if (serviceTypeFromRequest) {
-      assignIfChanged('serviceType', normalizedServiceType);
-    }
+    assignIfChanged('paymentType', normalizedPaymentType);
+    assignIfChanged('serviceType', normalizedServiceType);
+    assignIfChanged('planName', planName);
+    assignIfChanged('planId', normalizedServiceType);
 
     if (normalizedHolder) {
       assignIfChanged('holder', normalizedHolder);
@@ -131,6 +131,8 @@ async function resolveCustomer(body: CheckoutRequestBody, cpfDigits: string) {
     birthday: normalizedBirthday,
     paymentType: normalizedPaymentType,
     serviceType: normalizedServiceType,
+    planName,
+    planId: normalizedServiceType,
     holder: normalizedHolder || digitsOnly(body.cpf) || null,
     general: normalizedGeneral,
     asaasCustomerId: createdCustomer.id,
@@ -147,9 +149,9 @@ export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as CheckoutRequestBody;
     const billingType = body.billingType;
-    const value = Number(body.value || 0);
     const name = body.name?.trim();
     const cpfDigits = (body.cpf || '').replace(/\D/g, '');
+    const planIdFromRequest = (body.planId || body.serviceType || '').trim().toUpperCase();
 
     if (!billingType) {
       return NextResponse.json({ error: 'billingType is required' }, { status: 400 });
@@ -159,9 +161,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'name and cpf are required' }, { status: 400 });
     }
 
-    if (!Number.isFinite(value) || value <= 0) {
-      return NextResponse.json({ error: 'value must be greater than zero' }, { status: 400 });
+    if (!planIdFromRequest) {
+      return NextResponse.json({ error: 'planId is required' }, { status: 400 });
     }
+
+    const plan = await getPlan(planIdFromRequest);
+    if (!plan) {
+      return NextResponse.json({ error: 'Plano não encontrado' }, { status: 404 });
+    }
+
+    const planValue = Number(plan.value);
+    if (!Number.isFinite(planValue) || planValue <= 0) {
+      return NextResponse.json({ error: 'Plano configurado com valor inválido' }, { status: 400 });
+    }
+
+    const normalizedPaymentType = (body.paymentType || 'A').trim().toUpperCase() === 'S' ? 'S' : 'A';
+    const description = body.description?.trim() || plan.name;
+    const dueDate = formatDate(body.dueDate);
 
     if (billingType === 'CREDIT_CARD') {
       if (!body.creditCard || !body.creditCardHolderInfo) {
@@ -169,21 +185,57 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const { customerId, userRef } = await resolveCustomer(body, cpfDigits);
+    const { customerId, userRef } = await resolveCustomer(
+      body,
+      cpfDigits,
+      normalizedPaymentType,
+      plan.id,
+      plan.name,
+    );
+
+    if (normalizedPaymentType === 'S') {
+      const subscriptionPayload: Record<string, unknown> = {
+        customer: customerId,
+        billingType,
+        value: planValue,
+        description,
+        cycle: 'MONTHLY',
+        nextDueDate: dueDate,
+      };
+
+      const { data: subscription } = await asaas.post('/subscriptions', subscriptionPayload);
+
+      await userRef.update({
+        status: 'pending',
+        lastSubscriptionId: subscription.id,
+        planId: plan.id,
+        planName: plan.name,
+        paymentType: normalizedPaymentType,
+        serviceType: plan.id,
+        updatedAt: new Date(),
+      });
+
+      const response: CheckoutResponse = {
+        subscriptionId: subscription.id,
+        status: subscription.status || 'PENDING',
+        invoiceUrl: subscription.invoiceUrl ?? null,
+        customerId,
+        value: planValue,
+        description,
+      };
+
+      return NextResponse.json(response);
+    }
 
     const basePayload: Record<string, unknown> = {
       customer: customerId,
       billingType,
-      value,
-      description: body.description ?? undefined,
+      value: planValue,
+      description,
     };
 
-    if (billingType === 'BOLETO') {
-      basePayload.dueDate = formatDate(body.dueDate);
-    }
-
-    if (billingType === 'PIX') {
-      basePayload.dueDate = formatDate(body.dueDate);
+    if (billingType === 'BOLETO' || billingType === 'PIX') {
+      basePayload.dueDate = dueDate;
     }
 
     if (billingType === 'CREDIT_CARD') {
@@ -197,6 +249,10 @@ export async function POST(request: NextRequest) {
     await userRef.update({
       status: PAYMENT_SUCCESS_STATUSES.includes(payment.status as (typeof PAYMENT_SUCCESS_STATUSES)[number]) ? 'active' : 'pending',
       lastPaymentId: payment.id,
+      planId: plan.id,
+      planName: plan.name,
+      paymentType: normalizedPaymentType,
+      serviceType: plan.id,
       updatedAt: new Date(),
     });
 
@@ -205,6 +261,8 @@ export async function POST(request: NextRequest) {
       status: payment.status,
       invoiceUrl: payment.invoiceUrl ?? null,
       customerId,
+      value: planValue,
+      description,
     };
 
     if (billingType === 'PIX') {
