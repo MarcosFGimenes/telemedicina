@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import clsx from 'clsx';
+import { translateStatus } from '@/utils/status';
 
 type SubscriberMeta = {
   title: string;
@@ -125,7 +126,7 @@ export default function AssinanteLayout({ children }: { children: React.ReactNod
     return metaByRoute[pathname] ?? metaByRoute['/assinante/dashboard'];
   }, [pathname]);
 
-  const statusLabel = snapshot?.status ? String(snapshot.status).toUpperCase() : 'PENDENTE';
+  const statusLabel = translateStatus(snapshot?.status ?? 'PENDING');
 
   return (
     <AuthGuard>

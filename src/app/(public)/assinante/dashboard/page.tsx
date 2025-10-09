@@ -3,6 +3,8 @@
 import Link from 'next/link';
 import { useAuthContext } from '@/components/auth/AuthProvider';
 import { useEffect, useMemo, useState } from 'react';
+import { formatDateDisplay, formatDateTimeDisplay, toDateTimestamp } from '@/utils/datetime';
+import { normalizeStatus, translateStatus } from '@/utils/status';
 
 type Payment = {
   id: string;
@@ -48,17 +50,12 @@ const formatCurrency = (value?: number) => {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
 };
 
-const formatDateTime = (value?: string) => {
-  if (!value) return '—';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '—';
-  return new Intl.DateTimeFormat('pt-BR', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date);
+const paymentTimestamp = (payment: Payment): number => {
+  const timestamps = [payment.dueDate, payment.processedAt, payment.createdAt]
+    .map((value) => toDateTimestamp(value) ?? null)
+    .filter((value): value is number => value != null);
+  if (!timestamps.length) return Number.MAX_SAFE_INTEGER;
+  return Math.min(...timestamps);
 };
 
 export default function AssinanteDashboard() {
@@ -138,11 +135,7 @@ export default function AssinanteDashboard() {
     };
   }, [data.me?.user?.beneficiaryUuid, data.me?.user?.cpf]);
 
-  const status = beneficiary?.status
-    ? String(beneficiary.status).toUpperCase()
-    : data.me?.user?.status
-    ? String(data.me.user.status).toUpperCase()
-    : 'PENDENTE';
+  const statusLabel = translateStatus(beneficiary?.status ?? data.me?.user?.status ?? 'PENDING');
   const beneficiaryUuid = beneficiary?.uuid || beneficiary?.id || data.me?.user?.beneficiaryUuid || '';
 
   const mapServiceType = (value?: string) => {
@@ -182,11 +175,7 @@ export default function AssinanteDashboard() {
   const nextPayment = useMemo<Payment | null>(() => {
     const payments = data.me?.payments ?? [];
     if (!payments.length) return null;
-    return [...payments].sort((a, b) => {
-      const aDate = new Date(a.dueDate || a.processedAt || a.createdAt || 0).getTime();
-      const bDate = new Date(b.dueDate || b.processedAt || b.createdAt || 0).getTime();
-      return aDate - bDate;
-    })[0];
+    return [...payments].sort((a, b) => paymentTimestamp(a) - paymentTimestamp(b))[0];
   }, [data.me?.payments]);
 
   const dependents = data.dependents;
@@ -198,7 +187,7 @@ export default function AssinanteDashboard() {
           <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">Status do plano</p>
           <h2 className="mt-2 text-2xl font-semibold text-zinc-900">{planName}</h2>
           <p className="mt-4 inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50/80 px-3 py-1 text-xs font-semibold text-emerald-700">
-            <span>{beneficiaryLoading || loading ? 'Atualizando…' : status}</span>
+            <span>{beneficiaryLoading || loading ? 'Atualizando…' : statusLabel}</span>
           </p>
           <p className="mt-3 text-xs text-zinc-500">
             Titular Rapidoc:{' '}
@@ -239,10 +228,12 @@ export default function AssinanteDashboard() {
               </p>
               <p>
                 Vencimento:{' '}
-                <span className="font-medium text-emerald-700">{formatDateTime(nextPayment.dueDate || nextPayment.processedAt)}</span>
+                <span className="font-medium text-emerald-700">
+                  {formatDateDisplay(nextPayment.dueDate || nextPayment.processedAt)}
+                </span>
               </p>
-              <p className="text-xs uppercase tracking-wide text-emerald-600">
-                {String(nextPayment.status || 'PENDENTE').toUpperCase()}
+              <p className="text-xs tracking-wide text-emerald-600">
+                {translateStatus(nextPayment.status)}
               </p>
               {nextPayment.invoiceUrl && (
                 <Link
@@ -327,18 +318,30 @@ export default function AssinanteDashboard() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-emerald-50 bg-white/80">
-                {data.me.payments.slice(0, 5).map((payment) => (
-                  <tr key={payment.id} className="text-xs text-zinc-600">
-                    <td className="px-3 py-2 font-mono text-[11px]">{payment.id}</td>
-                    <td className="px-3 py-2">
-                      <span className="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
-                        {String(payment.status || 'PENDENTE').toUpperCase()}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2">{formatCurrency(payment.value)}</td>
-                    <td className="px-3 py-2">{formatDateTime(payment.processedAt || payment.dueDate)}</td>
+                {data.me.payments.slice(0, 5).map((payment) => {
+                  const statusNormalized = normalizeStatus(payment.status);
+                  const statusLabel = translateStatus(payment.status);
+                  const statusChipClass =
+                    statusNormalized === 'PENDING'
+                      ? 'bg-amber-50 text-amber-700'
+                      : statusNormalized === 'OVERDUE'
+                      ? 'bg-rose-50 text-rose-700'
+                      : 'bg-emerald-50 text-emerald-700';
+                  return (
+                    <tr key={payment.id} className="text-xs text-zinc-600">
+                      <td className="px-3 py-2 font-mono text-[11px]">{payment.id}</td>
+                      <td className="px-3 py-2">
+                        <span
+                          className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-wide ${statusChipClass}`}
+                        >
+                          {statusLabel}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2">{formatCurrency(payment.value)}</td>
+                    <td className="px-3 py-2">{formatDateTimeDisplay(payment.processedAt || payment.dueDate)}</td>
                   </tr>
-                ))}
+                );
+                })}
               </tbody>
             </table>
           </div>
@@ -366,8 +369,8 @@ export default function AssinanteDashboard() {
               <li key={dependent.uuid} className="rounded-2xl border border-white/70 bg-white/90 p-4 text-sm text-zinc-600 shadow-sm">
                 <p className="text-base font-semibold text-emerald-700">{dependent.name || 'Dependente sem nome'}</p>
                 <p className="mt-1 font-mono text-[11px] text-zinc-400">{dependent.uuid}</p>
-                <p className="mt-2 text-xs uppercase tracking-wide text-emerald-600">
-                  {String(dependent.status || 'ATIVO').toUpperCase()}
+                <p className="mt-2 text-xs tracking-wide text-emerald-600">
+                  {translateStatus(dependent.status ?? 'ACTIVE')}
                 </p>
               </li>
             ))}

@@ -2,7 +2,9 @@
 
 import { useAuthContext } from '@/components/auth/AuthProvider';
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { formatDateDisplay, formatDateTimeDisplay, toDateTimestamp } from '@/utils/datetime';
+import { normalizeStatus, translateStatus } from '@/utils/status';
 
 type Payment = {
   id: string;
@@ -21,39 +23,22 @@ const formatCurrency = (value?: number) => {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
 };
 
-const formatDate = (value?: string | null) => {
-  if (!value) return '—';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '—';
-  return new Intl.DateTimeFormat('pt-BR', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  }).format(date);
-};
-
-const formatDateTime = (value?: string | null) => {
-  if (!value) return '—';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '—';
-  return new Intl.DateTimeFormat('pt-BR', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date);
-};
-
-const normalizeStatus = (value?: string) => String(value || 'PENDING').toUpperCase();
-
 const statusStyles: Record<string, string> = {
   PENDING: 'bg-amber-50 text-amber-700',
   RECEIVED: 'bg-emerald-50 text-emerald-700',
   CONFIRMED: 'bg-emerald-50 text-emerald-700',
   OVERDUE: 'bg-rose-50 text-rose-700',
   REFUNDED: 'bg-sky-50 text-sky-700',
+  CANCELED: 'bg-zinc-100 text-zinc-600',
   CANCELLED: 'bg-zinc-100 text-zinc-600',
+};
+
+const paymentSortValue = (payment: Payment): number => {
+  const timestamps = [payment.processedAt, payment.paymentDate, payment.dueDate]
+    .map((value) => toDateTimestamp(value) ?? null)
+    .filter((value): value is number => value != null);
+  if (!timestamps.length) return 0;
+  return Math.max(...timestamps);
 };
 
 export default function FaturasPage() {
@@ -61,6 +46,46 @@ export default function FaturasPage() {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const copyTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const copyPaymentId = (id: string) => {
+    if (copyTimeout.current) {
+      clearTimeout(copyTimeout.current);
+      copyTimeout.current = null;
+    }
+
+    const performCopy = async () => {
+      try {
+        if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(id);
+        } else if (typeof document !== 'undefined') {
+          const textarea = document.createElement('textarea');
+          textarea.value = id;
+          textarea.style.position = 'fixed';
+          textarea.style.opacity = '0';
+          document.body.appendChild(textarea);
+          textarea.select();
+          document.execCommand('copy');
+          document.body.removeChild(textarea);
+        }
+        setCopiedId(id);
+        copyTimeout.current = setTimeout(() => {
+          setCopiedId((current) => (current === id ? null : current));
+        }, 2000);
+      } catch {
+        setCopiedId(null);
+      }
+    };
+
+    void performCopy();
+  };
+
+  useEffect(() => () => {
+    if (copyTimeout.current) {
+      clearTimeout(copyTimeout.current);
+    }
+  }, []);
 
   useEffect(() => {
     const load = async () => {
@@ -77,14 +102,7 @@ export default function FaturasPage() {
               status: normalizeStatus(payment.status),
             }))
           : [];
-        const sorted = [...mapped].sort((a, b) => {
-          const aDate = new Date(a.processedAt || a.dueDate || '').getTime();
-          const bDate = new Date(b.processedAt || b.dueDate || '').getTime();
-          if (Number.isNaN(aDate) && Number.isNaN(bDate)) return 0;
-          if (Number.isNaN(aDate)) return 1;
-          if (Number.isNaN(bDate)) return -1;
-          return bDate - aDate;
-        });
+        const sorted = [...mapped].sort((a, b) => paymentSortValue(b) - paymentSortValue(a));
         setPayments(sorted);
       } catch (e: any) {
         setErr(e?.message || 'Falha ao carregar faturas');
@@ -136,7 +154,11 @@ export default function FaturasPage() {
           <div className="rounded-2xl border border-emerald-200 bg-emerald-50/80 p-4">
             <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Última atualização</p>
             <p className="mt-2 text-sm text-emerald-700">
-              {loading ? 'Sincronizando…' : formatDateTime(payments[0]?.processedAt)}
+              {loading
+                ? 'Sincronizando…'
+                : formatDateTimeDisplay(
+                    payments[0]?.processedAt || payments[0]?.paymentDate || payments[0]?.dueDate,
+                  )}
             </p>
           </div>
         </div>
@@ -174,34 +196,42 @@ export default function FaturasPage() {
               </thead>
               <tbody className="divide-y divide-emerald-50 bg-white/80">
                 {payments.map((p) => {
-                  const status = normalizeStatus(p.status);
-                  const statusClass = statusStyles[status] || 'bg-zinc-100 text-zinc-600';
+                  const statusNormalized = normalizeStatus(p.status);
+                  const statusClass = statusStyles[statusNormalized] || 'bg-zinc-100 text-zinc-600';
+                  const statusLabel = translateStatus(p.status);
+                  const asaasUrl = `https://www.asaas.com/payments/${p.id}`;
+                  const isCopied = copiedId === p.id;
                   return (
                     <tr key={p.id} className="text-xs text-zinc-600">
-                      <td className="px-3 py-2 font-mono text-[11px] text-emerald-700">
-                        {p.invoiceUrl ? (
+                      <td className="px-3 py-2">
+                        <div className="flex items-center gap-2">
                           <a
-                            href={p.invoiceUrl}
+                            href={asaasUrl}
                             target="_blank"
                             rel="noreferrer"
-                            className="underline-offset-2 hover:underline"
+                            className="font-mono text-[11px] text-emerald-700 underline-offset-2 hover:underline"
                           >
                             {p.id}
                           </a>
-                        ) : (
-                          p.id
-                        )}
+                          <button
+                            type="button"
+                            onClick={() => copyPaymentId(p.id)}
+                            className="rounded-full border border-emerald-200 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 transition hover:bg-emerald-50"
+                          >
+                            {isCopied ? 'Copiado!' : 'Copiar'}
+                          </button>
+                        </div>
                       </td>
                       <td className="px-3 py-2 font-semibold text-zinc-700">{formatCurrency(p.value)}</td>
                       <td className="px-3 py-2">
                         <span
-                          className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${statusClass}`}
+                          className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-wide ${statusClass}`}
                         >
-                          {status}
+                          {statusLabel}
                         </span>
                       </td>
-                      <td className="px-3 py-2">{formatDate(p.dueDate)}</td>
-                      <td className="px-3 py-2">{formatDate(p.paymentDate)}</td>
+                      <td className="px-3 py-2">{formatDateDisplay(p.dueDate)}</td>
+                      <td className="px-3 py-2">{formatDateDisplay(p.paymentDate)}</td>
                       <td className="px-3 py-2 capitalize">{p.source === 'asaas' ? 'Asaas' : 'Registro interno'}</td>
                       <td className="px-3 py-2 text-emerald-700">
                         {p.invoiceUrl ? (

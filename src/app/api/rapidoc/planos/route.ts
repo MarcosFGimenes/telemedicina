@@ -1,7 +1,25 @@
+import axios from 'axios';
 import { NextResponse } from 'next/server';
-import { listPlans } from '@/lib/plansStore';
+import { fetchPlans } from '@/lib/rapidocSync';
 
 export async function GET() {
-  const plans = await listPlans();
-  return NextResponse.json(plans);
+  try {
+    const plans = await fetchPlans({ force: true });
+    return NextResponse.json(plans);
+  } catch (error: unknown) {
+    if (axios.isAxiosError(error)) {
+      const status = error.response?.status ?? 502;
+      return NextResponse.json(
+        {
+          error: 'Não foi possível consultar os planos da Rapidoc.',
+          upstream: error.response?.data ?? null,
+        },
+        { status },
+      );
+    }
+    return NextResponse.json(
+      { error: 'Erro inesperado ao consultar planos na Rapidoc.' },
+      { status: 500 },
+    );
+  }
 }

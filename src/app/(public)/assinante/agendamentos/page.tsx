@@ -3,8 +3,20 @@
 import axios from 'axios';
 import { useEffect, useMemo, useState } from 'react';
 import { useAuthContext } from '@/components/auth/AuthProvider';
+import {
+  formatDateDisplay,
+  formatShortDateDisplay,
+  normalizeBrazilianDate,
+} from '@/utils/datetime';
+import { normalizeStatus, translateStatus } from '@/utils/status';
 
-type Specialty = { id?: string; uuid?: string; name?: string; [key: string]: unknown };
+type SpecialtyOption = {
+  id: string;
+  uuid: string;
+  code: string;
+  name: string;
+  raw: Record<string, unknown>;
+};
 type AppointmentResp = { uuid?: string; id?: string; [key: string]: unknown };
 
 type SlotOption = {
@@ -23,6 +35,10 @@ type ReferralOption = {
   label: string;
   specialtyId?: string;
   specialtyName?: string;
+  specialtyCode?: string;
+  status?: string;
+  statusNormalized: string;
+  statusLabel: string;
   expiresAt?: string;
   raw?: Record<string, unknown>;
 };
@@ -52,15 +68,41 @@ const formatDateLabel = (value?: string): string | null => {
   if (!value) return null;
   const trimmed = value.trim();
   if (!trimmed) return null;
-  const date = new Date(trimmed);
-  if (!Number.isNaN(date.getTime())) {
-    try {
-      return new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short' }).format(date);
-    } catch {
-      return trimmed;
-    }
+  const normalized = normalizeBrazilianDate(trimmed);
+  if (normalized) {
+    const formatted = formatShortDateDisplay(normalized);
+    return formatted === '—' ? normalized : formatted;
   }
+  const formatted = formatShortDateDisplay(trimmed);
+  if (formatted !== '—') return formatted;
+  const fallback = formatDateDisplay(trimmed);
+  if (fallback !== '—') return fallback;
   return trimmed;
+};
+
+const normalizeSpecialtyOption = (raw: unknown, index: number): SpecialtyOption | null => {
+  const record = asRecord(raw);
+  if (!record) return null;
+  const uuid = stringFrom(record.uuid) || stringFrom(record.specialtyUuid) || stringFrom(record.id) || '';
+  const code =
+    stringFrom(record.code) ||
+    stringFrom(record.specialtyCode) ||
+    uuid ||
+    stringFrom(record.id) ||
+    String(index);
+  const id = (uuid || code || String(index)).toString();
+  const name =
+    stringFrom(record.name) ||
+    stringFrom(record.description) ||
+    stringFrom(record.title) ||
+    `Especialidade ${index + 1}`;
+  return {
+    id,
+    uuid: uuid || id,
+    code: code || id,
+    name,
+    raw: record,
+  } satisfies SpecialtyOption;
 };
 
 const parseReferrals = (raw: unknown): ReferralOption[] => {
@@ -119,17 +161,25 @@ const parseReferrals = (raw: unknown): ReferralOption[] => {
         undefined;
 
       const status = stringFrom(item.status) || stringFrom(item.situation);
+      const statusNormalized = normalizeStatus(status);
+      const statusLabel = translateStatus(status);
       const expiresAt =
         stringFrom(item.expiresAt) ||
         stringFrom(item.expirationDate) ||
         stringFrom(item.validUntil) ||
+        undefined;
+      const specialtyCode =
+        stringFrom(item.specialtyCode) ||
+        (specialty && (stringFrom(specialty.code) || stringFrom(specialty.referralCode))) ||
+        stringFrom(item.specialtyId) ||
+        stringFrom(item.specialtyUuid) ||
         undefined;
 
       const formattedExpiry = formatDateLabel(expiresAt);
 
       const labelParts = [
         specialtyName || 'Encaminhamento',
-        status ? `Status: ${status}` : null,
+        status ? `Status: ${statusLabel}` : null,
         formattedExpiry ? `Validade: ${formattedExpiry}` : null,
       ].filter(Boolean) as string[];
 
@@ -140,6 +190,10 @@ const parseReferrals = (raw: unknown): ReferralOption[] => {
         label,
         specialtyId,
         specialtyName,
+        specialtyCode,
+        status,
+        statusNormalized,
+        statusLabel,
         expiresAt,
         raw: item,
       } as ReferralOption;
@@ -215,7 +269,7 @@ const messageFromAxiosError = (error: unknown, fallback: string) => {
 export default function AssinanteAgendamentosPage() {
   const { token } = useAuthContext();
   const [loading, setLoading] = useState(false);
-  const [specs, setSpecs] = useState<Specialty[]>([]);
+  const [specs, setSpecs] = useState<SpecialtyOption[]>([]);
   const [specId, setSpecId] = useState('');
   const [disp, setDisp] = useState<unknown[]>([]);
   const [slotId, setSlotId] = useState('');
@@ -239,7 +293,11 @@ export default function AssinanteAgendamentosPage() {
       try {
         setError('');
         const { data } = await axios.get('/api/rapidoc/especialidades');
-        setSpecs(Array.isArray(data) ? data : []);
+        const items = Array.isArray(data) ? data : [];
+        const normalized = items
+          .map((item, index) => normalizeSpecialtyOption(item, index))
+          .filter((item): item is SpecialtyOption => Boolean(item));
+        setSpecs(normalized);
       } catch (error: unknown) {
         setError(messageFromAxiosError(error, 'Erro ao listar especialidades'));
       }
@@ -412,7 +470,8 @@ export default function AssinanteAgendamentosPage() {
         const { data } = await axios.get(`/api/rapidoc/beneficiaries/${beneficiaryUuid}/referrals`);
         if (!active) return;
         const items = parseReferrals(data);
-        setReferrals(items);
+        const pending = items.filter((ref) => ref.statusNormalized === 'PENDING');
+        setReferrals(pending);
       } catch (error: unknown) {
         if (!active) return;
         setReferrals([]);
@@ -449,14 +508,9 @@ export default function AssinanteAgendamentosPage() {
     );
   };
 
-  const currentSpec = useMemo<Specialty | null>(() => {
+  const currentSpec = useMemo<SpecialtyOption | null>(() => {
     if (!specId) return null;
-    return (
-      specs.find((spec, index) => {
-        const id = spec.id ?? spec.uuid ?? stringFrom(spec?.['code']) ?? index;
-        return String(id) === String(specId);
-      }) || null
-    );
+    return specs.find((spec) => spec.id === specId) ?? null;
   }, [specId, specs]);
 
   const currentSpecName = currentSpec?.name ? String(currentSpec.name) : '';
@@ -473,23 +527,31 @@ export default function AssinanteAgendamentosPage() {
   const referralOptions = useMemo<ReferralOption[]>(() => {
     if (!referrals.length) return [];
     if (!specId) return referrals;
+    const target = specs.find((spec) => spec.id === specId);
+    if (!target) return referrals;
+    const targetCode = target.code.toLowerCase();
+    const targetUuid = target.uuid.toLowerCase();
+    const targetName = target.name.toLowerCase();
     const matches: ReferralOption[] = [];
     const others: ReferralOption[] = [];
     referrals.forEach((ref) => {
-      const refIdMatches = ref.specialtyId ? String(ref.specialtyId) === String(specId) : false;
+      const refCode = ref.specialtyCode ? ref.specialtyCode.toLowerCase() : '';
+      const refId = ref.specialtyId ? String(ref.specialtyId).toLowerCase() : '';
       const refName = ref.specialtyName ? ref.specialtyName.toLowerCase() : '';
-      const nameMatches =
-        normalizedSpecName && refName
-          ? refName.includes(normalizedSpecName) || normalizedSpecName.includes(refName)
-          : false;
-      if (refIdMatches || nameMatches) {
+      const codeMatches =
+        (refCode && (refCode === targetCode || refCode === targetUuid)) ||
+        (refId && (refId === targetCode || refId === targetUuid));
+      const nameMatches = refName
+        ? refName === targetName || refName.includes(targetName) || targetName.includes(refName)
+        : false;
+      if (codeMatches || nameMatches) {
         matches.push(ref);
       } else {
         others.push(ref);
       }
     });
-    return [...matches, ...others];
-  }, [referrals, specId, normalizedSpecName]);
+    return matches.length ? [...matches, ...others] : referrals;
+  }, [referrals, specId, specs]);
 
   useEffect(() => {
     if (!selectedReferralId) return;
@@ -508,6 +570,40 @@ export default function AssinanteAgendamentosPage() {
     if (!selectedReferralId) return null;
     return referrals.find((ref) => ref.id === selectedReferralId) || null;
   }, [selectedReferralId, referrals]);
+
+  const displayedSpecs = useMemo<SpecialtyOption[]>(() => {
+    if (!selectedReferral?.specialtyCode) return specs;
+    const code = selectedReferral.specialtyCode.trim().toLowerCase();
+    if (!code) return specs;
+    const matches = specs.filter((spec) => {
+      const specCode = spec.code.toLowerCase();
+      const specUuid = spec.uuid.toLowerCase();
+      const specName = spec.name.toLowerCase();
+      return (
+        specCode === code ||
+        specUuid === code ||
+        specName === code ||
+        specName.includes(code) ||
+        code.includes(specName)
+      );
+    });
+    return matches.length ? matches : specs;
+  }, [specs, selectedReferral?.specialtyCode]);
+
+  useEffect(() => {
+    if (!selectedReferral?.specialtyCode) return;
+    const code = selectedReferral.specialtyCode.trim().toLowerCase();
+    if (!code) return;
+    const matching = specs.find((spec) => {
+      const specCode = spec.code.toLowerCase();
+      const specUuid = spec.uuid.toLowerCase();
+      const specName = spec.name.toLowerCase();
+      return specCode === code || specUuid === code || specName === code;
+    });
+    if (matching && specId !== matching.id) {
+      setSpecId(matching.id);
+    }
+  }, [selectedReferral?.specialtyCode, specs, specId]);
 
   const selectedReferralSummary = useMemo<ReferralSummary | null>(() => {
     if (!selectedReferral) return null;
@@ -544,7 +640,7 @@ export default function AssinanteAgendamentosPage() {
     return {
       name,
       status,
-      statusLabel: status ? status.toUpperCase() : '',
+      statusLabel: status ? translateStatus(status) : '',
       planLabel,
       serviceType,
       paymentType: normalizedPayment,
@@ -797,14 +893,11 @@ export default function AssinanteAgendamentosPage() {
               <label className="label">Especialidade</label>
               <select className="select" value={specId} onChange={(event) => onSelectSpec(event.target.value)}>
                 <option value="">Selecione…</option>
-                {specs.map((spec, index) => {
-                  const id = spec.id || spec.uuid || String(index);
-                  return (
-                    <option key={String(id)} value={String(id)}>
-                      {spec.name || `Especialidade ${id}`}
-                    </option>
-                  );
-                })}
+                {displayedSpecs.map((spec) => (
+                  <option key={spec.id} value={spec.id}>
+                    {spec.name}
+                  </option>
+                ))}
               </select>
               <p className="mt-2 text-xs text-zinc-600">
                 Todas as especialidades exigem encaminhamento emitido por um clinico geral, exceto Psicologia e Nutricao.

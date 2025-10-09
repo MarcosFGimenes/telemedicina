@@ -3,6 +3,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { PlanDefinition } from '@/types/plans';
 
+type RapidocPlanSummary = {
+  serviceType: string;
+  name: string;
+  description: string;
+  isActive: boolean;
+  uuid?: string;
+};
+
 const emptyForm = {
   id: '',
   serviceType: '',
@@ -36,6 +44,41 @@ const extractErrorMessage = (payload: unknown, fallback: string) => {
   return fallback;
 };
 
+const normalizeRapidocPlans = (value: unknown): RapidocPlanSummary[] => {
+  const list = Array.isArray(value)
+    ? value
+    : Array.isArray((value as { plans?: unknown })?.plans)
+      ? ((value as { plans?: unknown })?.plans as unknown[])
+      : [];
+
+  return list
+    .map((plan) => {
+      if (!plan || typeof plan !== 'object') {
+        return null;
+      }
+      const candidate = plan as Record<string, unknown>;
+      const serviceTypeRaw = typeof candidate.serviceType === 'string' ? candidate.serviceType : '';
+      const serviceType = serviceTypeRaw.trim().toUpperCase();
+      if (!serviceType) {
+        return null;
+      }
+      const nameRaw = typeof candidate.name === 'string' ? candidate.name.trim() : '';
+      const description = typeof candidate.description === 'string' ? candidate.description.trim() : '';
+      const uuidRaw = typeof candidate.uuid === 'string' ? candidate.uuid.trim() : '';
+      const isActive = typeof candidate.isActive === 'boolean' ? candidate.isActive : true;
+
+      return {
+        serviceType,
+        name: nameRaw || serviceType,
+        description,
+        isActive,
+        uuid: uuidRaw || undefined,
+      } satisfies RapidocPlanSummary;
+    })
+    .filter((plan): plan is RapidocPlanSummary => Boolean(plan))
+    .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+};
+
 export default function AdminPlansPage() {
   const [plans, setPlans] = useState<PlanDefinition[]>([]);
   const [loading, setLoading] = useState(false);
@@ -47,6 +90,9 @@ export default function AdminPlansPage() {
   const [serviceOptions, setServiceOptions] = useState<ServiceTypeOption[]>([]);
   const [loadingServices, setLoadingServices] = useState(false);
   const [servicesError, setServicesError] = useState('');
+  const [rapidocPlans, setRapidocPlans] = useState<RapidocPlanSummary[]>([]);
+  const [loadingRapidocPlans, setLoadingRapidocPlans] = useState(false);
+  const [rapidocError, setRapidocError] = useState('');
 
   const loadPlans = useCallback(async () => {
     try {
@@ -69,6 +115,29 @@ export default function AdminPlansPage() {
   useEffect(() => {
     loadPlans();
   }, [loadPlans]);
+
+  const loadRapidocPlans = useCallback(async () => {
+    try {
+      setLoadingRapidocPlans(true);
+      setRapidocError('');
+      const res = await fetch('/api/rapidoc/planos');
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(extractErrorMessage(data, 'Falha ao consultar planos da Rapidoc.'));
+      }
+
+      setRapidocPlans(normalizeRapidocPlans(data));
+    } catch (err: unknown) {
+      setRapidocPlans([]);
+      setRapidocError(err instanceof Error ? err.message : 'Não foi possível carregar os planos da Rapidoc.');
+    } finally {
+      setLoadingRapidocPlans(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadRapidocPlans();
+  }, [loadRapidocPlans]);
 
   useEffect(() => {
     const fetchServices = async () => {
@@ -247,6 +316,71 @@ export default function AdminPlansPage() {
 
   return (
     <div className="space-y-6">
+      <section className="rounded-3xl border border-white/70 bg-white/90 p-6 shadow-sm">
+        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-xl font-semibold text-zinc-900">Especialidades da Rapidoc</h2>
+            <p className="text-sm text-zinc-500">
+              Lista de planos disponíveis diretamente na Rapidoc. Utilize estes códigos (serviceType) ao criar
+              ofertas no sistema.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              void loadRapidocPlans();
+            }}
+            disabled={loadingRapidocPlans}
+            className="h-10 rounded-lg border border-zinc-200 px-4 py-2 text-sm text-zinc-600 transition hover:bg-zinc-50 disabled:opacity-60"
+          >
+            Atualizar
+          </button>
+        </div>
+
+        {loadingRapidocPlans && (
+          <p className="mt-6 text-sm text-zinc-500">Consultando planos da Rapidoc…</p>
+        )}
+
+        {!loadingRapidocPlans && rapidocError && (
+          <p className="mt-6 text-sm text-red-600">{rapidocError}</p>
+        )}
+
+        {!loadingRapidocPlans && !rapidocError && rapidocPlans.length === 0 && (
+          <p className="mt-6 text-sm text-zinc-500">
+            Nenhum plano encontrado na Rapidoc. Verifique as credenciais configuradas.
+          </p>
+        )}
+
+        {!loadingRapidocPlans && !rapidocError && rapidocPlans.length > 0 && (
+          <div className="mt-6 overflow-x-auto">
+            <table className="min-w-full divide-y divide-zinc-200 text-sm">
+              <thead className="bg-zinc-50 text-left text-xs uppercase tracking-wide text-zinc-500">
+                <tr>
+                  <th className="px-4 py-2">serviceType</th>
+                  <th className="px-4 py-2">Nome</th>
+                  <th className="px-4 py-2">Descrição</th>
+                  <th className="px-4 py-2">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100">
+                {rapidocPlans.map((plan) => (
+                  <tr key={plan.serviceType} className="bg-white/80" title={plan.uuid ?? undefined}>
+                    <td className="px-4 py-3 font-mono text-xs uppercase text-zinc-500">
+                      {plan.serviceType}
+                    </td>
+                    <td className="px-4 py-3 font-medium text-zinc-700">{plan.name}</td>
+                    <td className="px-4 py-3 text-zinc-500">{plan.description || '—'}</td>
+                    <td className="px-4 py-3 text-zinc-600">
+                      {plan.isActive ? 'Ativo' : 'Inativo'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
       <section className="rounded-3xl border border-white/70 bg-white/90 p-6 shadow-sm">
         <h2 className="text-xl font-semibold text-zinc-900">{header}</h2>
         <p className="mt-1 text-sm text-zinc-500">
