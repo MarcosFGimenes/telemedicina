@@ -57,3 +57,5 @@ export const isValidPhone = (value: string) => {
   const digits = onlyDigits(value);
   return digits.length >= 10 && digits.length <= 11;
 };
+
+export const isValidPassword = (value: string) => value.trim().length >= 6;

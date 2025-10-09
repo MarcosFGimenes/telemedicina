@@ -1,6 +1,7 @@
 'use client';
 
 import { FormEvent, Suspense, useState } from 'react';
+import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { auth as getAuth } from '@/lib/firebaseClient';
 import { FirebaseError } from 'firebase/app';
@@ -106,7 +107,16 @@ function LoginContent() {
         </button>
       </form>
 
-      {error && <p className="mt-6 text-sm text-red-600">{error}</p>}
+      <div className="mt-6 space-y-2 text-center text-sm text-zinc-600">
+        {error && <p className="text-red-600">{error}</p>}
+        <p>
+          Primeiro acesso?{' '}
+          <Link href="/primeiro-acesso" className="font-semibold text-emerald-700 hover:underline">
+            Cadastre-se com seu CPF
+          </Link>
+          .
+        </p>
+      </div>
     </div>
   );
 }

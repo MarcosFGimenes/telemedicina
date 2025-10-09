@@ -30,6 +30,11 @@ const navLinks: NavLink[] = [
     helper: 'Consulta, ativação e inativação rápida',
   },
   {
+    href: '/admin/usuarios',
+    label: 'Gerenciar usuários',
+    helper: 'Acesso, senhas e vinculação de contas',
+  },
+  {
     href: '/admin/agendamentos',
     label: 'Agendamentos',
     helper: 'Monitoramento de agenda e disponibilidade',
@@ -54,6 +59,10 @@ const metaByRoute: Record<string, LayoutMeta> = {
   '/admin/beneficiarios': {
     title: 'Gestão de beneficiários',
     description: 'Pesquise titulares, controle status e alinhe cadastros.',
+  },
+  '/admin/usuarios': {
+    title: 'Gerenciar usuários',
+    description: 'Controle acessos, redefina senhas e habilite contas rapidamente.',
   },
   '/admin/agendamentos': {
     title: 'Agenda integrada',
