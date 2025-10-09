@@ -68,6 +68,8 @@ export type AsaasPixQrCode = {
 export type CheckoutResponse = {
   paymentId?: string;
   subscriptionId?: string;
+  checkoutId?: string;
+  checkoutUrl?: string;
   status: string;
   invoiceUrl?: string | null;
   pix?: {
@@ -78,6 +80,9 @@ export type CheckoutResponse = {
   customerId: string;
   value?: number;
   description?: string | null;
+  paymentType?: string;
+  planId?: string;
+  chargeType?: 'RECURRENT' | 'INSTALLMENT' | string;
 };
 
 export type StatusResponse = {

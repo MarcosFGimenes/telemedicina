@@ -19,14 +19,21 @@ async function readPlans(): Promise<PlanDefinition[]> {
   try {
     const parsed = JSON.parse(content);
     if (!Array.isArray(parsed)) return [];
-    return parsed.map((plan) => ({
-      id: String(plan.id || plan.serviceType || '').toUpperCase(),
-      name: String(plan.name || '').trim(),
-      description: String(plan.description || '').trim(),
-      value: Number(plan.value || 0),
-      createdAt: plan.createdAt || new Date().toISOString(),
-      updatedAt: plan.updatedAt || plan.createdAt || new Date().toISOString(),
-    })) as PlanDefinition[];
+    return parsed.map((plan) => {
+      const id = String(plan.id || plan.serviceType || '').trim().toUpperCase();
+      const serviceType = String(plan.serviceType || id).trim().toUpperCase();
+      const rawMax = Number(plan.maxDependents);
+      return {
+        id,
+        serviceType,
+        name: String(plan.name || '').trim(),
+        description: String(plan.description || '').trim(),
+        value: Number(plan.value || 0),
+        maxDependents: Number.isFinite(rawMax) && rawMax > 0 ? Math.trunc(rawMax) : null,
+        createdAt: plan.createdAt || new Date().toISOString(),
+        updatedAt: plan.updatedAt || plan.createdAt || new Date().toISOString(),
+      } satisfies PlanDefinition;
+    });
   } catch {
     return [];
   }
@@ -43,6 +50,7 @@ export async function listPlans(): Promise<PlanDefinition[]> {
     .map((plan) => ({
       ...plan,
       id: plan.id.toUpperCase(),
+      serviceType: plan.serviceType.toUpperCase(),
     }))
     .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
 }
@@ -50,18 +58,25 @@ export async function listPlans(): Promise<PlanDefinition[]> {
 export async function getPlan(id: string): Promise<PlanDefinition | null> {
   const plans = await readPlans();
   const normalizedId = id.toUpperCase();
-  return plans.find((plan) => plan.id.toUpperCase() === normalizedId) ?? null;
+  return (
+    plans.find((plan) => plan.id.toUpperCase() === normalizedId || plan.serviceType.toUpperCase() === normalizedId) ?? null
+  );
 }
 
 export async function createPlan(payload: PlanPayload): Promise<PlanDefinition> {
   const plans = await readPlans();
-  const id = payload.id.trim().toUpperCase();
+  const id = (payload.id || payload.serviceType || '').trim().toUpperCase();
+  const serviceType = (payload.serviceType || payload.id || '').trim().toUpperCase();
   if (!id) {
     throw new Error('O código do plano é obrigatório.');
   }
 
-  if (plans.some((plan) => plan.id === id)) {
-    throw new Error('Já existe um plano com esse código.');
+  if (!serviceType) {
+    throw new Error('O serviceType do plano é obrigatório.');
+  }
+
+  if (plans.some((plan) => plan.id === id || plan.serviceType === serviceType)) {
+    throw new Error('Já existe um plano com esse código/serviceType.');
   }
 
   const name = payload.name.trim();
@@ -74,12 +89,23 @@ export async function createPlan(payload: PlanPayload): Promise<PlanDefinition> 
     throw new Error('Informe um valor válido para o plano.');
   }
 
+  let maxDependents: number | null = null;
+  if (payload.maxDependents !== undefined && payload.maxDependents !== null) {
+    const parsed = Number(payload.maxDependents);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      throw new Error('Informe um número válido para o máximo de dependentes.');
+    }
+    maxDependents = parsed === 0 ? null : Math.trunc(parsed);
+  }
+
   const now = new Date().toISOString();
   const plan: PlanDefinition = {
     id,
+    serviceType,
     name,
     description: payload.description?.trim() || '',
     value,
+    maxDependents,
     createdAt: now,
     updatedAt: now,
   };
@@ -116,11 +142,41 @@ export async function updatePlan(id: string, payload: PlanUpdatePayload): Promis
       ? payload.description.trim()
       : current.description;
 
+  let serviceType = current.serviceType;
+  if (payload.serviceType !== undefined) {
+    const normalized = (payload.serviceType || '').trim().toUpperCase();
+    if (!normalized) {
+      throw new Error('O serviceType do plano é obrigatório.');
+    }
+    const alreadyExists = plans.some(
+      (plan, idx) => idx !== index && (plan.serviceType === normalized || plan.id === normalized),
+    );
+    if (alreadyExists) {
+      throw new Error('Já existe outro plano com esse serviceType.');
+    }
+    serviceType = normalized;
+  }
+
+  let maxDependents = current.maxDependents;
+  if (payload.maxDependents !== undefined) {
+    if (payload.maxDependents === null) {
+      maxDependents = null;
+    } else {
+      const parsed = Number(payload.maxDependents);
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        throw new Error('Informe um número válido para o máximo de dependentes.');
+      }
+      maxDependents = parsed === 0 ? null : Math.trunc(parsed);
+    }
+  }
+
   const updated: PlanDefinition = {
     ...current,
+    serviceType,
     name,
     value,
     description,
+    maxDependents,
     updatedAt: new Date().toISOString(),
   };
 

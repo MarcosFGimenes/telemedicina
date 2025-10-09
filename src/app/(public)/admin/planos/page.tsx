@@ -5,12 +5,20 @@ import type { PlanDefinition } from '@/types/plans';
 
 const emptyForm = {
   id: '',
+  serviceType: '',
   name: '',
   description: '',
   value: '',
+  maxDependents: '',
 };
 
 type FormState = typeof emptyForm;
+
+type ServiceTypeOption = {
+  code: string;
+  name: string;
+  description: string;
+};
 
 const currency = new Intl.NumberFormat('pt-BR', {
   style: 'currency',
@@ -36,6 +44,9 @@ export default function AdminPlansPage() {
   const [form, setForm] = useState<FormState>(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [serviceOptions, setServiceOptions] = useState<ServiceTypeOption[]>([]);
+  const [loadingServices, setLoadingServices] = useState(false);
+  const [servicesError, setServicesError] = useState('');
 
   const loadPlans = useCallback(async () => {
     try {
@@ -59,8 +70,37 @@ export default function AdminPlansPage() {
     loadPlans();
   }, [loadPlans]);
 
+  useEffect(() => {
+    const fetchServices = async () => {
+      try {
+        setLoadingServices(true);
+        setServicesError('');
+        const res = await fetch('/api/rapidoc/service-types');
+        const data = await res.json().catch(() => null);
+        if (!res.ok) {
+          throw new Error(extractErrorMessage(data, 'Falha ao carregar serviços da Rapidoc.'));
+        }
+        setServiceOptions(Array.isArray(data) ? (data as ServiceTypeOption[]) : []);
+      } catch (err: unknown) {
+        setServiceOptions([]);
+        setServicesError(
+          err instanceof Error ? err.message : 'Não foi possível carregar os serviços da Rapidoc.',
+        );
+      } finally {
+        setLoadingServices(false);
+      }
+    };
+
+    fetchServices();
+  }, []);
+
   const handleChange = (key: keyof FormState, value: string) => {
     setForm((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const handleServiceTypeChange = (value: string) => {
+    const normalized = value.toUpperCase();
+    setForm((prev) => ({ ...prev, serviceType: normalized, id: normalized }));
   };
 
   const resetForm = () => {
@@ -75,15 +115,28 @@ export default function AdminPlansPage() {
 
     const payload = {
       id: form.id.trim(),
+      serviceType: form.serviceType.trim(),
       name: form.name.trim(),
       description: form.description.trim(),
       value: Number(form.value.replace(',', '.')),
+      maxDependents:
+        form.maxDependents.trim() === ''
+          ? null
+          : Number(form.maxDependents.trim().replace(',', '.')),
     };
+
+    if (!payload.serviceType) {
+      setError('Selecione um serviço da Rapidoc.');
+      return;
+    }
 
     if (!payload.id) {
       setError('Informe o código interno do plano.');
       return;
     }
+
+    payload.id = payload.id.toUpperCase();
+    payload.serviceType = payload.serviceType.toUpperCase();
 
     if (!payload.name) {
       setError('Informe um nome para o plano.');
@@ -93,6 +146,14 @@ export default function AdminPlansPage() {
     if (!Number.isFinite(payload.value) || payload.value <= 0) {
       setError('Informe um valor válido maior que zero.');
       return;
+    }
+
+    if (payload.maxDependents !== null) {
+      if (!Number.isFinite(payload.maxDependents) || payload.maxDependents < 0) {
+        setError('Informe um número válido para o máximo de dependentes.');
+        return;
+      }
+      payload.maxDependents = Math.trunc(Number(payload.maxDependents));
     }
 
     try {
@@ -122,9 +183,11 @@ export default function AdminPlansPage() {
     setEditingId(plan.id);
     setForm({
       id: plan.id,
+      serviceType: plan.serviceType,
       name: plan.name,
       description: plan.description,
       value: String(plan.value.toFixed(2)),
+      maxDependents: plan.maxDependents != null ? String(plan.maxDependents) : '',
     });
     setSuccess('');
     setError('');
@@ -160,6 +223,28 @@ export default function AdminPlansPage() {
     return editingId ? `Editando plano ${editingId}` : 'Cadastrar novo plano';
   }, [editingId]);
 
+  const availableServiceOptions = useMemo(() => {
+    const map = new Map<string, ServiceTypeOption>();
+    serviceOptions.forEach((option) => {
+      map.set(option.code, option);
+    });
+    plans.forEach((plan) => {
+      if (!map.has(plan.serviceType)) {
+        map.set(plan.serviceType, {
+          code: plan.serviceType,
+          name: plan.name,
+          description: plan.description,
+        });
+      }
+    });
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+  }, [serviceOptions, plans]);
+
+  const selectedService = useMemo(
+    () => availableServiceOptions.find((option) => option.code === form.serviceType) || null,
+    [availableServiceOptions, form.serviceType],
+  );
+
   return (
     <div className="space-y-6">
       <section className="rounded-3xl border border-white/70 bg-white/90 p-6 shadow-sm">
@@ -170,15 +255,25 @@ export default function AdminPlansPage() {
 
         <form onSubmit={handleSubmit} className="mt-6 grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
-            <label className="text-sm font-medium text-zinc-700">Código (serviceType)</label>
-            <input
+            <label className="text-sm font-medium text-zinc-700">Serviço Rapidoc (serviceType)</label>
+            <select
               className="w-full rounded-lg border border-zinc-200 px-3 py-2"
-              value={form.id}
-              onChange={(event) => handleChange('id', event.target.value.toUpperCase())}
-              placeholder="Ex.: GS"
-              disabled={Boolean(editingId)}
-            />
-            <p className="text-xs text-zinc-500">Use o mesmo código utilizado pela Rapidoc.</p>
+              value={form.serviceType}
+              onChange={(event) => handleServiceTypeChange(event.target.value)}
+              disabled={loadingServices || Boolean(editingId)}
+            >
+              <option value="">Selecione um serviço…</option>
+              {availableServiceOptions.map((option) => (
+                <option key={option.code} value={option.code}>
+                  {option.name} ({option.code})
+                </option>
+              ))}
+            </select>
+            {loadingServices && <p className="text-xs text-zinc-500">Carregando serviços…</p>}
+            {servicesError && <p className="text-xs text-red-600">{servicesError}</p>}
+            {selectedService?.description && (
+              <p className="text-xs text-zinc-500">{selectedService.description}</p>
+            )}
           </div>
 
           <div className="space-y-2">
@@ -210,6 +305,18 @@ export default function AdminPlansPage() {
               placeholder="49,90"
               inputMode="decimal"
             />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-zinc-700">Máx. dependentes</label>
+            <input
+              className="w-full rounded-lg border border-zinc-200 px-3 py-2"
+              value={form.maxDependents}
+              onChange={(event) => handleChange('maxDependents', event.target.value.replace(/[^\d,\.]/g, ''))}
+              placeholder="Ex.: 4"
+              inputMode="numeric"
+            />
+            <p className="text-xs text-zinc-500">Deixe em branco para ilimitado.</p>
           </div>
 
           <div className="flex items-end gap-3">
@@ -264,21 +371,27 @@ export default function AdminPlansPage() {
             <table className="min-w-full divide-y divide-zinc-200 text-sm">
               <thead className="bg-zinc-50 text-left text-xs uppercase tracking-wide text-zinc-500">
                 <tr>
-                  <th className="px-4 py-2">Código</th>
+                  <th className="px-4 py-2">serviceType</th>
                   <th className="px-4 py-2">Nome</th>
                   <th className="px-4 py-2">Descrição</th>
                   <th className="px-4 py-2 text-right">Valor</th>
+                  <th className="px-4 py-2 text-right">Máx. dependentes</th>
                   <th className="px-4 py-2 text-right">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100">
                 {plans.map((plan) => (
                   <tr key={plan.id} className="bg-white/80">
-                    <td className="px-4 py-3 font-mono text-xs uppercase text-zinc-500">{plan.id}</td>
+                    <td className="px-4 py-3 font-mono text-xs uppercase text-zinc-500">
+                      {plan.serviceType}
+                    </td>
                     <td className="px-4 py-3 font-medium text-zinc-700">{plan.name}</td>
                     <td className="px-4 py-3 text-zinc-500">{plan.description || '—'}</td>
                     <td className="px-4 py-3 text-right font-medium text-zinc-700">
                       {currency.format(plan.value)}
+                    </td>
+                    <td className="px-4 py-3 text-right text-zinc-600">
+                      {plan.maxDependents != null ? plan.maxDependents : '—'}
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex justify-end gap-2">

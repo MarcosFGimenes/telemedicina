@@ -4,13 +4,7 @@ import { asaas } from '@/lib/asaas';
 import { db } from '@/lib/firebaseAdmin';
 import { digitsOnly } from '@/lib/beneficiaryPayload';
 import { getPlan } from '@/lib/plansStore';
-import {
-  type AsaasPayment,
-  type AsaasPixQrCode,
-  type CheckoutRequestBody,
-  type CheckoutResponse,
-  PAYMENT_SUCCESS_STATUSES,
-} from '@/types/checkout';
+import { type CheckoutRequestBody, type CheckoutResponse } from '@/types/checkout';
 
 const formatDate = (value?: string) => {
   if (!value) {
@@ -32,6 +26,7 @@ async function resolveCustomer(
   normalizedPaymentType: string,
   normalizedServiceType: string,
   planName: string,
+  planMaxDependents: number | null,
 ) {
   const normalizedBirthday = body.birthday?.trim() || null;
   const normalizedHolder = digitsOnly(body.holder) || null;
@@ -86,6 +81,11 @@ async function resolveCustomer(
     assignIfChanged('serviceType', normalizedServiceType);
     assignIfChanged('planName', planName);
     assignIfChanged('planId', normalizedServiceType);
+    if (planMaxDependents !== null) {
+      assignIfChanged('maxDependents', planMaxDependents);
+    } else if (data.maxDependents !== undefined) {
+      updates.maxDependents = null;
+    }
 
     if (normalizedHolder) {
       assignIfChanged('holder', normalizedHolder);
@@ -133,6 +133,7 @@ async function resolveCustomer(
     serviceType: normalizedServiceType,
     planName,
     planId: normalizedServiceType,
+    maxDependents: planMaxDependents,
     holder: normalizedHolder || digitsOnly(body.cpf) || null,
     general: normalizedGeneral,
     asaasCustomerId: createdCustomer.id,
@@ -179,108 +180,107 @@ export async function POST(request: NextRequest) {
     const description = body.description?.trim() || plan.name;
     const dueDate = formatDate(body.dueDate);
 
-    if (billingType === 'CREDIT_CARD') {
-      if (!body.creditCard || !body.creditCardHolderInfo) {
-        return NextResponse.json({ error: 'credit card data is required' }, { status: 400 });
-      }
-    }
-
     const { customerId, userRef } = await resolveCustomer(
       body,
       cpfDigits,
       normalizedPaymentType,
-      plan.id,
+      plan.serviceType,
       plan.name,
+      plan.maxDependents ?? null,
     );
 
-    if (normalizedPaymentType === 'S') {
-      const subscriptionPayload: Record<string, unknown> = {
-        customer: customerId,
-        billingType,
-        value: planValue,
-        description,
-        cycle: 'MONTHLY',
-        nextDueDate: dueDate,
-      };
+    const paymentMethods: string[] = (() => {
+      switch (billingType) {
+        case 'PIX':
+        case 'BOLETO':
+        case 'CREDIT_CARD':
+          return [billingType];
+        default:
+          return ['PIX', 'BOLETO', 'CREDIT_CARD'];
+      }
+    })();
 
-      const { data: subscription } = await asaas.post('/subscriptions', subscriptionPayload);
+    const chargeTypes = normalizedPaymentType === 'S' ? ['RECURRENT'] : ['INSTALLMENT'];
 
-      await userRef.update({
-        status: 'pending',
-        lastSubscriptionId: subscription.id,
-        planId: plan.id,
-        planName: plan.name,
-        paymentType: normalizedPaymentType,
-        serviceType: plan.id,
-        updatedAt: new Date(),
-      });
-
-      const response: CheckoutResponse = {
-        subscriptionId: subscription.id,
-        status: subscription.status || 'PENDING',
-        invoiceUrl: subscription.invoiceUrl ?? null,
-        customerId,
-        value: planValue,
-        description,
-      };
-
-      return NextResponse.json(response);
-    }
-
-    const basePayload: Record<string, unknown> = {
+    const checkoutPayload: Record<string, unknown> = {
       customer: customerId,
       billingType,
-      value: planValue,
       description,
+      chargeTypes,
+      paymentMethods,
+      value: planValue,
+      externalReference: userRef.id,
+      customerData: {
+        name: body.name,
+        cpfCnpj: cpfDigits,
+        email: body.email,
+        mobilePhone: body.mobilePhone,
+        phone: body.mobilePhone,
+        postalCode: body.zipCode,
+        address: body.address,
+        city: body.city,
+        state: body.state,
+      },
     };
 
-    if (billingType === 'BOLETO' || billingType === 'PIX') {
-      basePayload.dueDate = dueDate;
+    if (normalizedPaymentType === 'S') {
+      checkoutPayload.subscription = {
+        cycle: 'MONTHLY',
+        value: planValue,
+        description,
+        nextDueDate: dueDate,
+      };
+    } else {
+      checkoutPayload.dueDate = dueDate;
+      checkoutPayload.installmentOptions = { numberOfInstallments: 1 };
     }
 
-    if (billingType === 'CREDIT_CARD') {
-      basePayload.creditCard = body.creditCard;
-      basePayload.creditCardHolderInfo = body.creditCardHolderInfo;
-    }
+    const { data: checkout } = await asaas.post('/checkout', checkoutPayload);
 
-    const paymentResponse = await asaas.post('/payments', basePayload);
-    const payment = paymentResponse.data as AsaasPayment;
+    const checkoutIdCandidates = [
+      checkout?.id,
+      checkout?.checkoutId,
+      checkout?.sessionId,
+      checkout?.session?.id,
+      checkout?.data?.id,
+    ]
+      .map((value) => (typeof value === 'string' ? value.trim() : ''))
+      .filter((value) => value);
+    const checkoutId = checkoutIdCandidates[0] || '';
+    const explicitUrlCandidates = [
+      checkout?.url,
+      checkout?.checkoutUrl,
+      checkout?.sessionUrl,
+      checkout?.data?.url,
+    ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0);
+    const checkoutUrl =
+      explicitUrlCandidates[0]?.trim() ||
+      (checkoutId ? `https://asaas.com/checkoutSession/show?id=${checkoutId}` : '');
 
     await userRef.update({
-      status: PAYMENT_SUCCESS_STATUSES.includes(payment.status as (typeof PAYMENT_SUCCESS_STATUSES)[number]) ? 'active' : 'pending',
-      lastPaymentId: payment.id,
-      planId: plan.id,
+      status: 'pending-checkout',
+      lastCheckoutId: checkoutId || null,
+      planId: plan.serviceType,
       planName: plan.name,
       paymentType: normalizedPaymentType,
-      serviceType: plan.id,
+      serviceType: plan.serviceType,
+      maxDependents: plan.maxDependents ?? null,
       updatedAt: new Date(),
     });
 
     const response: CheckoutResponse = {
-      paymentId: payment.id,
-      status: payment.status,
-      invoiceUrl: payment.invoiceUrl ?? null,
+      status: 'PENDING',
+      checkoutId: checkoutId || undefined,
+      checkoutUrl: checkoutUrl || undefined,
       customerId,
       value: planValue,
       description,
+      paymentType: normalizedPaymentType,
+      planId: plan.serviceType,
+      chargeType: chargeTypes[0],
     };
 
-    if (billingType === 'PIX') {
-      try {
-        const pixResponse = await asaas.get(`/payments/${payment.id}/pixQrCode`);
-        const pixData = pixResponse.data as AsaasPixQrCode;
-        response.pix = {
-          encodedImage: pixData.encodedImage,
-          payload: pixData.payload,
-          expirationDate: pixData.expirationDate ?? null,
-        };
-      } catch (error) {
-        console.error('[checkout/pagar] pixQrCode error', payment.id, error);
-        response.pix = null;
-      }
-    }
-
-    return NextResponse.json(response);
+    return NextResponse.json(response, { status: 201 });
   } catch (error: unknown) {
     if (axios.isAxiosError(error)) {
       const status = error.response?.status ?? 502;
