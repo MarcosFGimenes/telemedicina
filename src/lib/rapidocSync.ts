@@ -7,6 +7,9 @@ export const VALID_SERVICE_TYPES = new Set(['G', 'P', 'GP', 'GS', 'GSP']);
 
 type RapidocPlanRecord = Record<string, unknown>;
 
+const isRecord = (value: unknown): value is RapidocPlanRecord =>
+  Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+
 export type RapidocPlan = {
   uuid?: string;
   serviceType: string;
@@ -43,25 +46,106 @@ const readBoolean = (value: unknown): boolean | null => {
   }
   if (typeof value === 'string') {
     const normalized = value.trim().toLowerCase();
-    if (['true', '1', 'ativo', 'active', 'yes'].includes(normalized)) return true;
-    if (['false', '0', 'inativo', 'inactive', 'no'].includes(normalized)) return false;
+    if (['true', '1', 'ativo', 'active', 'yes', 'a', 'enabled', 'ativo(a)'].includes(normalized)) return true;
+    if (['false', '0', 'inativo', 'inactive', 'no', 'i', 'disabled', 'inativo(a)'].includes(normalized)) return false;
   }
   return null;
 };
 
+const looksLikePlan = (record: RapidocPlanRecord) => {
+  const directKeys = [
+    'serviceType',
+    'service_type',
+    'code',
+    'planCode',
+    'plan_code',
+    'planId',
+    'plan_id',
+    'planName',
+    'plan_name',
+    'name',
+  ];
+
+  return directKeys.some((key) => typeof record[key] === 'string');
+};
+
 const extractPlanRecords = (raw: unknown): RapidocPlanRecord[] => {
-  if (Array.isArray(raw)) {
-    return raw.filter((item): item is RapidocPlanRecord => Boolean(item) && typeof item === 'object');
+  const results: RapidocPlanRecord[] = [];
+  const visited = new WeakSet<object>();
+
+  const traverse = (value: unknown, depth: number) => {
+    if (!value || depth > 6) {
+      return;
+    }
+
+    if (Array.isArray(value)) {
+      value.forEach((item) => {
+        if (isRecord(item)) {
+          if (looksLikePlan(item)) {
+            results.push(item);
+          }
+          traverse(item, depth + 1);
+        } else {
+          traverse(item, depth + 1);
+        }
+      });
+      return;
+    }
+
+    if (!isRecord(value)) {
+      return;
+    }
+
+    if (visited.has(value)) {
+      return;
+    }
+    visited.add(value);
+
+    if (looksLikePlan(value)) {
+      results.push(value);
+    }
+
+    Object.entries(value).forEach(([key, nested]) => {
+      const normalizedKey = key.toLowerCase();
+      const shouldDive =
+        depth < 3 || PLAN_LIST_KEYS.some((candidate) => normalizedKey.includes(candidate.toLowerCase()));
+      if (shouldDive) {
+        traverse(nested, depth + 1);
+      }
+    });
+  };
+
+  traverse(raw, 0);
+
+  return Array.from(new Set(results));
+};
+
+const readNestedString = (
+  record: RapidocPlanRecord,
+  keys: readonly string[],
+  depth = 0,
+  visited = new WeakSet<object>(),
+): string => {
+  if (!record || depth > 6 || visited.has(record)) {
+    return '';
   }
-  if (raw && typeof raw === 'object') {
-    for (const key of PLAN_LIST_KEYS) {
-      const nested = (raw as Record<string, unknown>)[key];
-      if (Array.isArray(nested)) {
-        return nested.filter((item): item is RapidocPlanRecord => Boolean(item) && typeof item === 'object');
+  visited.add(record);
+
+  for (const key of keys) {
+    const value = record[key];
+    const direct = readString(value);
+    if (direct) {
+      return direct;
+    }
+    if (isRecord(value)) {
+      const nested = readNestedString(value, keys, depth + 1, visited);
+      if (nested) {
+        return nested;
       }
     }
   }
-  return [];
+
+  return '';
 };
 
 const normalizePlan = (record: RapidocPlanRecord): RapidocPlan | null => {
@@ -69,8 +153,29 @@ const normalizePlan = (record: RapidocPlanRecord): RapidocPlan | null => {
     readString(record.serviceType) ||
     readString(record.code) ||
     readString(record.planCode) ||
+    readString(record.plan_code) ||
+    readString(record.service_type) ||
+    readString(record.serviceCode) ||
+    readString(record.service_code) ||
     readString(record.id) ||
-    readString(record.type);
+    readString(record.type) ||
+    readNestedString(record, [
+      'serviceType',
+      'service_type',
+      'code',
+      'planCode',
+      'plan_code',
+      'serviceCode',
+      'service_code',
+      'type',
+      'id',
+      'plan',
+      'service',
+      'data',
+      'attributes',
+      'item',
+      'details',
+    ]);
 
   const normalizedServiceType = serviceType ? serviceType.toUpperCase() : '';
   if (!normalizedServiceType) {
@@ -80,13 +185,37 @@ const normalizePlan = (record: RapidocPlanRecord): RapidocPlan | null => {
   const name =
     readString(record.name) ||
     readString(record.planName) ||
+    readString(record.plan_name) ||
     readString(record.title) ||
+    readNestedString(record, [
+      'name',
+      'planName',
+      'plan_name',
+      'title',
+      'plan',
+      'data',
+      'attributes',
+      'details',
+    ]) ||
     normalizedServiceType;
 
   const description =
     readString(record.description) ||
     readString(record.planDescription) ||
+    readString(record.plan_description) ||
     readString(record.details) ||
+    readNestedString(record, [
+      'description',
+      'planDescription',
+      'plan_description',
+      'details',
+      'resume',
+      'summary',
+      'data',
+      'attributes',
+      'plan',
+      'item',
+    ]) ||
     '';
 
   const uuid =
