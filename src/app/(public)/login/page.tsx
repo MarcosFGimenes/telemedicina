@@ -5,7 +5,8 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { auth as getAuth } from '@/lib/firebaseClient';
 import { FirebaseError } from 'firebase/app';
-import { signInWithEmailAndPassword } from 'firebase/auth';
+import { signInWithEmailAndPassword, type User } from 'firebase/auth';
+import { ADMIN_ROLE } from '@/constants/roles';
 
 function readError(err: unknown): string {
   if (err instanceof FirebaseError) {
@@ -59,7 +60,8 @@ function LoginContent() {
       }
 
       await linkBeneficiaryIfPresent(token);
-      router.replace(nextUrl);
+      const destination = await resolvePostLoginRedirect(credential.user, token, nextUrl);
+      router.replace(destination);
     } catch (err) {
       console.error('[login][password]', err);
       setError(readError(err));
@@ -135,6 +137,43 @@ async function linkBeneficiaryIfPresent(token: string | null) {
   } catch (err) {
     console.warn('[login][beneficiary]', err);
   }
+}
+
+async function resolvePostLoginRedirect(user: User, token: string | null, requested: string) {
+  const subscriberDashboard = '/assinante/dashboard';
+  const adminDashboard = '/admin/dashboard';
+  const requestedPath = typeof requested === 'string' && requested.trim().length > 0 ? requested : subscriberDashboard;
+
+  try {
+    const result = await user.getIdTokenResult().catch(() => null);
+    const claims = (result?.claims ?? null) as Record<string, unknown> | null;
+    const claimRole =
+      (claims && typeof claims.role === 'string' && claims.role) ||
+      (claims && typeof claims['custom:role'] === 'string' && (claims['custom:role'] as string)) ||
+      '';
+    if (claimRole === ADMIN_ROLE) {
+      return requestedPath.startsWith('/admin') ? requestedPath : adminDashboard;
+    }
+  } catch (error) {
+    console.warn('[login][redirect][claims]', error);
+  }
+
+  if (token) {
+    try {
+      const response = await fetch('/api/me', { headers: { Authorization: `Bearer ${token}` } });
+      if (response.ok) {
+        const data = await response.json();
+        const docRole = typeof data?.user?.role === 'string' ? data.user.role : '';
+        if (docRole === ADMIN_ROLE) {
+          return requestedPath.startsWith('/admin') ? requestedPath : adminDashboard;
+        }
+      }
+    } catch (error) {
+      console.warn('[login][redirect][profile]', error);
+    }
+  }
+
+  return subscriberDashboard;
 }
 
 export default function LoginPage() {

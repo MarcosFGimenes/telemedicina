@@ -90,6 +90,13 @@ export default function FirstAccessPage() {
       }
 
       const data = (await response.json()) as BeneficiaryResponse;
+
+      if (data?.beneficiary?.isActive === false) {
+        setLookupError(
+          'Seu plano não está ativo no momento. Para normalizar o acesso, acesse medicosconsultasonline.com.br.',
+        );
+        return;
+      }
       setBeneficiary(data.beneficiary);
       setRapidocSnapshot(
         data.rapidoc && typeof data.rapidoc === 'object' ? data.rapidoc : data.beneficiary.raw ?? null,
