@@ -1,5 +1,6 @@
 'use client';
 import axios from 'axios';
+import clsx from 'clsx';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CheckoutRequestBody, CheckoutResponse, StatusResponse } from '@/types/checkout';
 import { PAYMENT_SUCCESS_STATUSES } from '@/types/checkout';
@@ -22,6 +23,8 @@ type BeneficiaryForm = {
   holder: string;
   general: string;
 };
+
+type FlowStep = 'form' | 'instructions' | 'payment';
 
 const SAMPLE: BeneficiaryForm = {
   name: 'Marcos Farinelli Gimenes',
@@ -189,11 +192,13 @@ export default function TesteRapidocPage() {
   const [form, setForm] = useState<BeneficiaryForm>(SAMPLE);
   const [resp, setResp] = useState<unknown>(null);
   const [err, setErr] = useState('');
+  const [flowStep, setFlowStep] = useState<FlowStep>('form');
 
   const [payment, setPayment] = useState<CheckoutResponse | null>(null);
   const [status, setStatus] = useState<string>('');
   const [checking, setChecking] = useState(false);
   const [polling, setPolling] = useState(false);
+  const [submittingSubscription, setSubmittingSubscription] = useState(false);
   const [subscriptionDetails, setSubscriptionDetails] = useState<unknown>(null);
   const [subscriptionPayments, setSubscriptionPayments] = useState<unknown>(null);
   const [subscriptionPaymentId, setSubscriptionPaymentId] = useState('');
@@ -202,6 +207,7 @@ export default function TesteRapidocPage() {
   const successSet = useRef(new Set<string>(PAYMENT_SUCCESS_STATUSES));
   const paymentRef = useRef<CheckoutResponse | null>(null);
   const beneficiaryCreatedRef = useRef(false);
+  const [beneficiaryCreated, setBeneficiaryCreated] = useState(false);
   const checkingRef = useRef(false);
 
   useEffect(() => {
@@ -257,7 +263,7 @@ export default function TesteRapidocPage() {
     }
   }, [selectedPlan]);
 
-  const createSubscription = async () => {
+  const createSubscription = async (): Promise<boolean> => {
     try {
       setErr('');
       setResp(null);
@@ -269,16 +275,17 @@ export default function TesteRapidocPage() {
       setSubscriptionPaymentId('');
       setSubscriptionPaymentUrl('');
       beneficiaryCreatedRef.current = false;
+      setBeneficiaryCreated(false);
 
       if (!selectedPlan) {
         setErr('Selecione um plano antes de criar a assinatura.');
-        return;
+        return false;
       }
 
       const amount = Number(selectedPlan.value) || 0;
       if (!amount || amount <= 0) {
         setErr('Informe um valor válido (> 0).');
-        return;
+        return false;
       }
 
       const normalizedPaymentType: BeneficiaryForm['paymentType'] = 'S';
@@ -313,8 +320,10 @@ export default function TesteRapidocPage() {
       if (data.subscriptionId) {
         await fetchSubscriptionPaymentsById(data.subscriptionId);
       }
+      return true;
     } catch (error: unknown) {
       setErr(getErrorMessage(error, 'Erro ao criar assinatura'));
+      return false;
     }
   };
 
@@ -446,16 +455,81 @@ export default function TesteRapidocPage() {
       const { data } = await axios.post('/api/rapidoc/beneficiaries', payload);
       setResp(data);
       beneficiaryCreatedRef.current = true;
+      setBeneficiaryCreated(true);
       return true;
     } catch (error: unknown) {
       beneficiaryCreatedRef.current = false;
+      setBeneficiaryCreated(false);
       setErr(getErrorMessage(error, 'Erro ao criar beneficiário'));
       return false;
     }
   };
 
+  const stepOrder: FlowStep[] = ['form', 'instructions', 'payment'];
+  const currentStepIndex = stepOrder.indexOf(flowStep);
+  const stepLabels: Record<FlowStep, { title: string; description: string }> = {
+    form: {
+      title: 'Dados do beneficiário',
+      description: 'Informe os dados do titular e escolha o plano ideal.',
+    },
+    instructions: {
+      title: 'Confirme a assinatura',
+      description: 'Revise as informações e gere a cobrança segura via Asaas.',
+    },
+    payment: {
+      title: 'Finalize o pagamento',
+      description: 'Realize o pagamento, aguarde a confirmação automática e conclua o registro.',
+    },
+  };
+
+  const handleContinueToInstructions = () => {
+    if (!selectedPlan) {
+      setErr('Selecione um plano antes de continuar.');
+      return;
+    }
+    setErr('');
+    setFlowStep('instructions');
+  };
+
+  const handleBackToForm = () => {
+    setFlowStep('form');
+  };
+
+  const handleConfirmSubscription = async () => {
+    setSubmittingSubscription(true);
+    const success = await createSubscription();
+    setSubmittingSubscription(false);
+    if (success) {
+      setFlowStep('payment');
+    }
+  };
+
+  const checkoutUrl = subscriptionPaymentUrl || payment?.invoiceUrl || '';
+
+  const friendlyResponseMessage = useMemo(() => {
+    if (!resp) return '';
+    const message = extractMessage(resp);
+    if (!message) return '';
+    const normalized = message.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    if (normalized.includes('processamento concluido') && normalized.includes('beneficiario criado')) {
+      return 'Processamento concluído com sucesso! Beneficiário criado na Rapidoc. Agora finalize o cadastro de acesso para liberar o portal.';
+    }
+    if (normalized.includes('beneficiario') && normalized.includes('criado')) {
+      return 'Beneficiário criado na Rapidoc. Você já pode prosseguir para o registro de acesso do titular.';
+    }
+    return message;
+  }, [resp]);
+
+  const successSummary = useMemo(() => {
+    if (friendlyResponseMessage) return friendlyResponseMessage;
+    if (beneficiaryCreated) {
+      return 'Pagamento confirmado e beneficiário cadastrado automaticamente. Continue com o registro do acesso para concluir.';
+    }
+    return '';
+  }, [friendlyResponseMessage, beneficiaryCreated]);
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <header className="space-y-1">
         <h1 className="text-2xl font-semibold">Teste – Rapidoc Beneficiário</h1>
         <p className="text-sm text-zinc-600">
@@ -463,215 +537,374 @@ export default function TesteRapidocPage() {
         </p>
       </header>
 
-      <section className="space-y-3">
-        <h2 className="text-lg font-medium">Planos disponíveis</h2>
-        {loadingPlans && <p className="text-sm text-zinc-600">Carregando planos…</p>}
-        {plansError && <p className="text-sm text-red-600">{plansError}</p>}
-
-        {!loadingPlans && !plansError && (
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="rounded-lg border bg-white p-3">
-              <label className="mb-1 block text-sm font-medium">Plano</label>
-              <select
-                className="w-full rounded-md border px-3 py-2"
-                value={selectedPlanId}
-                onChange={(e) => setSelectedPlanId(e.target.value)}
+      <section className="rounded-3xl border border-white/70 bg-white/90 p-6 shadow-sm">
+        <ol className="flex flex-col gap-4 sm:flex-row">
+          {stepOrder.map((step, index) => {
+            const { title, description } = stepLabels[step];
+            const isActive = step === flowStep;
+            const isCompleted = index < currentStepIndex;
+            return (
+              <li
+                key={step}
+                className={clsx(
+                  'flex-1 rounded-2xl border px-4 py-3 transition',
+                  isActive
+                    ? 'border-emerald-400 bg-emerald-50/90 shadow-sm'
+                    : isCompleted
+                    ? 'border-emerald-200 bg-emerald-50/60'
+                    : 'border-white/60 bg-white/70',
+                )}
               >
-                <option value="">Selecione um plano…</option>
-                {plans.map((opt) => (
-                  <option key={opt.id} value={opt.id}>
-                    {opt.name} – R$ {opt.value.toFixed(2)}
-                  </option>
-                ))}
-              </select>
-              {selectedPlan && (
-                <div className="mt-2 space-y-1 rounded-md bg-emerald-50/60 p-3 text-xs text-emerald-700">
-                  <p className="font-semibold uppercase tracking-wide">
-                    Código: {selectedPlan.id}
-                  </p>
-                  <p>{selectedPlan.description || 'Sem descrição.'}</p>
+                <div className="flex items-start gap-3">
+                  <span
+                    className={clsx(
+                      'flex h-8 w-8 items-center justify-center rounded-full border text-sm font-semibold',
+                      isCompleted
+                        ? 'border-emerald-500 bg-emerald-500 text-white'
+                        : isActive
+                        ? 'border-emerald-500 text-emerald-700'
+                        : 'border-zinc-300 text-zinc-400',
+                    )}
+                  >
+                    {isCompleted ? '✓' : index + 1}
+                  </span>
+                  <div>
+                    <p className="text-sm font-semibold text-emerald-700">{title}</p>
+                    <p className="text-xs text-zinc-500">{description}</p>
+                  </div>
                 </div>
-              )}
-            </div>
+              </li>
+            );
+          })}
+        </ol>
+      </section>
 
-            <div className="rounded-lg border bg-white p-3">
-              <p className="text-sm font-medium text-zinc-700">Service Type</p>
-              <p className="mt-2 font-mono text-sm uppercase text-zinc-700">
-                {form.serviceType || '—'}
-              </p>
-              <p className="mt-1 text-xs text-zinc-500">
-                Definido automaticamente pelo plano selecionado.
-              </p>
-            </div>
+      {err && (
+        <div className="rounded-2xl border border-red-100 bg-red-50/80 p-4 text-sm text-red-700">
+          {err}
+        </div>
+      )}
+
+      {flowStep === 'form' && (
+        <section className="space-y-6">
+          <div className="space-y-3">
+            <h2 className="text-lg font-medium">Planos disponíveis</h2>
+            {loadingPlans && <p className="text-sm text-zinc-600">Carregando planos…</p>}
+            {plansError && <p className="text-sm text-red-600">{plansError}</p>}
+
+            {!loadingPlans && !plansError && (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-lg border bg-white p-3">
+                  <label className="mb-1 block text-sm font-medium">Plano</label>
+                  <select
+                    className="w-full rounded-md border px-3 py-2"
+                    value={selectedPlanId}
+                    onChange={(e) => setSelectedPlanId(e.target.value)}
+                  >
+                    <option value="">Selecione um plano…</option>
+                    {plans.map((opt) => (
+                      <option key={opt.id} value={opt.id}>
+                        {opt.name} – R$ {opt.value.toFixed(2)}
+                      </option>
+                    ))}
+                  </select>
+                  {selectedPlan && (
+                    <div className="mt-2 space-y-1 rounded-md bg-emerald-50/60 p-3 text-xs text-emerald-700">
+                      <p className="font-semibold uppercase tracking-wide">Código: {selectedPlan.id}</p>
+                      <p>{selectedPlan.description || 'Sem descrição.'}</p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="rounded-lg border bg-white p-3">
+                  <p className="text-sm font-medium text-zinc-700">Service Type</p>
+                  <p className="mt-2 font-mono text-sm uppercase text-zinc-700">
+                    {form.serviceType || '—'}
+                  </p>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    Definido automaticamente pelo plano selecionado.
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
-        )}
-      </section>
 
-      <section className="space-y-3">
-        <h2 className="text-lg font-medium">Dados do beneficiário</h2>
-        <div className="grid gap-3 sm:grid-cols-2">
-          {(
-            [
-              'name',
-              'cpf',
-              'birthday',
-              'phone',
-              'email',
-              'zipCode',
-              'address',
-              'city',
-              'state',
-              'holder',
-              'general',
-            ] as (keyof BeneficiaryForm)[]
-          ).map((key) => (
-            <div key={key} className="rounded-lg border bg-white p-3">
-              <label className="mb-1 block text-sm font-medium">{key}</label>
-              <input
-                className="w-full rounded-md border px-3 py-2"
-                value={form[key] as string}
-                onChange={(e) => onChange(key, e.target.value)}
-                placeholder={key === 'birthday' ? 'aaaa-mm-dd' : ''}
-              />
+          <div className="space-y-3">
+            <h2 className="text-lg font-medium">Dados do beneficiário</h2>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {(
+                [
+                  'name',
+                  'cpf',
+                  'birthday',
+                  'phone',
+                  'email',
+                  'zipCode',
+                  'address',
+                  'city',
+                  'state',
+                  'holder',
+                  'general',
+                ] as (keyof BeneficiaryForm)[]
+              ).map((key) => (
+                <div key={key} className="rounded-lg border bg-white p-3">
+                  <label className="mb-1 block text-sm font-medium capitalize">{key}</label>
+                  <input
+                    className="w-full rounded-md border px-3 py-2"
+                    value={form[key] as string}
+                    onChange={(e) => onChange(key, e.target.value)}
+                    placeholder={key === 'birthday' ? 'aaaa-mm-dd' : ''}
+                  />
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+            <p className="text-xs text-zinc-500">
+              Os dados enviados são validados automaticamente pelo conector Rapidoc.
+            </p>
+          </div>
 
-        {err && <p className="text-sm text-red-600">{String(err)}</p>}
-      </section>
-
-      <section className="space-y-3">
-        <h2 className="text-lg font-medium">Assinatura (Asaas)</h2>
-        <div className="rounded-lg border bg-white p-3">
-          <label className="mb-1 block text-sm font-medium">Valor (R$)</label>
-          <input
-            className="w-full rounded-md border px-3 py-2"
-            value={displayValue}
-            readOnly
-            placeholder="Selecione um plano"
-          />
-          <p className="mt-1 text-xs text-zinc-500">
-            Valor calculado a partir da configuração oficial do plano.
+          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr),auto] sm:items-center">
+            <div className="rounded-lg border bg-white p-3">
+              <p className="text-sm font-medium text-zinc-700">Valor da assinatura</p>
+              <p className="mt-2 text-2xl font-semibold text-emerald-700">R$ {displayValue || '0,00'}</p>
+              <p className="mt-1 text-xs text-zinc-500">
+                Valor calculado com base na configuração oficial do plano Rapidoc.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleContinueToInstructions}
+              className="rounded-full bg-emerald-600 px-6 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
+            >
+              Continuar
+            </button>
+          </div>
+          <p className="text-xs text-zinc-500">
+            Você poderá revisar todas as informações antes de confirmar a assinatura.
           </p>
-        </div>
+        </section>
+      )}
 
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            onClick={createSubscription}
-            className="rounded-md bg-zinc-900 px-4 py-2 text-white"
-          >
-            Criar assinatura
-          </button>
-          <button
-            onClick={checkStatus}
-            disabled={!payment || checking}
-            className="rounded-md border border-zinc-300 px-4 py-2 disabled:opacity-60"
-          >
-            {checking
-              ? 'Verificando…'
-              : payment?.subscriptionId
-                ? 'Verificar assinatura'
-                : 'Verificar status'}
-          </button>
-          {payment?.subscriptionId && (
-            <>
+      {flowStep === 'instructions' && selectedPlan && (
+        <section className="space-y-6">
+          <div className="rounded-3xl border border-emerald-100 bg-emerald-50/80 p-6 shadow-sm">
+            <h2 className="text-lg font-semibold text-emerald-700">Revise antes de confirmar</h2>
+            <p className="mt-2 text-sm text-emerald-700">
+              Ao confirmar, geraremos a assinatura no Asaas com os dados abaixo.
+            </p>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <div className="rounded-2xl border border-white/80 bg-white/90 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">
+                  Plano selecionado
+                </p>
+                <p className="mt-2 text-sm font-semibold text-zinc-800">{selectedPlan.name}</p>
+                <p className="text-xs text-zinc-500">Valor mensal: R$ {displayValue || '0,00'}</p>
+              </div>
+              <div className="rounded-2xl border border-white/80 bg-white/90 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">
+                  Beneficiário
+                </p>
+                <p className="mt-2 text-sm font-semibold text-zinc-800">{form.name}</p>
+                <p className="text-xs text-zinc-500">CPF: {form.cpf}</p>
+                <p className="text-xs text-zinc-500">E-mail: {form.email}</p>
+                <p className="text-xs text-zinc-500">Telefone: {form.phone}</p>
+              </div>
+            </div>
+            <ul className="mt-4 list-disc space-y-1 pl-5 text-sm text-emerald-700">
+              <li>Confira se os dados do beneficiário e do plano estão corretos.</li>
+              <li>
+                Clique em <strong>Confirmar assinatura</strong> para gerar a cobrança segura no Asaas.
+              </li>
+              <li>Na próxima etapa você será direcionado ao checkout para efetuar o pagamento.</li>
+              <li>Após pagar, retorne a esta página para acompanhar a confirmação automática.</li>
+            </ul>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={handleBackToForm}
+              className="rounded-full border border-zinc-300 px-5 py-2 text-sm font-medium text-zinc-600 transition hover:border-zinc-400 hover:text-zinc-700"
+            >
+              Editar informações
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirmSubscription}
+              disabled={submittingSubscription}
+              className="inline-flex items-center justify-center rounded-full bg-emerald-600 px-6 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-60"
+            >
+              {submittingSubscription ? 'Gerando assinatura…' : 'Confirmar assinatura'}
+            </button>
+          </div>
+          <p className="text-xs text-zinc-500">
+            Assim que a assinatura for criada exibiremos o link para continuar o pagamento.
+          </p>
+        </section>
+      )}
+
+      {flowStep === 'payment' && (
+        <section className="space-y-6">
+          <div className="rounded-3xl border border-emerald-100 bg-emerald-50/80 p-6 shadow-sm">
+            <h2 className="text-lg font-semibold text-emerald-700">Pagamento e confirmação automática</h2>
+            <p className="mt-2 text-sm text-emerald-700">
+              Utilize o botão abaixo para abrir o checkout do Asaas, efetue o pagamento e, após concluir, retorne para acompanhar a ativação do beneficiário.
+            </p>
+            <ul className="mt-4 list-disc space-y-1 pl-5 text-sm text-emerald-700">
+              <li>O link abre em uma nova aba. Finalize o pagamento normalmente no Asaas.</li>
+              <li>Após a confirmação, esta página detecta o status automaticamente e cria o beneficiário.</li>
+              <li>Mesmo que você feche esta página, o webhook do Asaas garante a criação do beneficiário.</li>
+              <li>
+                Com o pagamento confirmado, finalize o registro do acesso no portal{' '}
+                <a className="text-emerald-700 underline" href="/primeiro-acesso">
+                  Primeiro acesso
+                </a>
+                .
+              </li>
+            </ul>
+            {checkoutUrl ? (
+              <a
+                href={checkoutUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-4 inline-flex items-center justify-center rounded-full bg-emerald-600 px-6 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
+              >
+                Continuar para pagamento
+              </a>
+            ) : (
+              <p className="mt-4 text-sm text-emerald-700">
+                Gerando cobrança… aguarde um instante para exibirmos o link de pagamento.
+              </p>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={checkStatus}
+              disabled={!payment || checking}
+              className="rounded-full border border-zinc-300 px-5 py-2 text-sm font-medium text-zinc-600 transition hover:border-zinc-400 hover:text-zinc-700 disabled:opacity-60"
+            >
+              {checking
+                ? 'Verificando…'
+                : payment?.subscriptionId
+                  ? 'Verificar assinatura'
+                  : 'Verificar status'}
+            </button>
+            {payment?.subscriptionId && (
               <button
+                type="button"
                 onClick={listSubscriptionPayments}
-                className="rounded-md border border-zinc-300 px-4 py-2 disabled:opacity-60"
+                className="rounded-full border border-zinc-300 px-5 py-2 text-sm font-medium text-zinc-600 transition hover:border-zinc-400 hover:text-zinc-700"
               >
                 Atualizar cobranças
               </button>
-              {subscriptionPaymentUrl && (
-                <a
-                  href={subscriptionPaymentUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="rounded-md border border-emerald-600 px-4 py-2 text-emerald-700 transition hover:bg-emerald-50"
-                >
-                  Abrir cobrança (Asaas)
-                </a>
-              )}
-            </>
-          )}
-          <span className="text-xs text-emerald-600">
-            {polling
-              ? 'Monitoramento automático ativo.'
-              : 'O monitoramento inicia automaticamente após gerar a cobrança.'}
-          </span>
-        </div>
-
-        {payment && payment.invoiceUrl && (
-          <a
-            href={payment.invoiceUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center text-sm text-blue-600 underline"
-          >
-            Abrir fatura / checkout
-          </a>
-        )}
-
-        {payment && (
-          <div className="rounded-md border border-dashed border-zinc-300 p-3 text-xs">
-            {payment.subscriptionId ? (
-              <>
-                <p>
-                  Subscription ID:{' '}
-                  <span className="font-mono text-sm">{payment.subscriptionId}</span>
-                </p>
-                <p>Status: {status || payment.status}</p>
-                {subscriptionPaymentId && (
-                  <p>
-                    Payment ID inicial{' '}
-                    <span className="font-mono text-sm">{subscriptionPaymentId}</span>
-                  </p>
-                )}
-                {subscriptionPaymentCode && (
-                  <p>
-                    Código Asaas{' '}
-                    <span className="font-mono text-sm">{subscriptionPaymentCode}</span>
-                  </p>
-                )}
-              </>
-            ) : (
-              <>
-                <p>
-                  Payment ID:{' '}
-                  <span className="font-mono text-sm">{payment.paymentId}</span>
-                </p>
-                <p>Status: {status || payment.status}</p>
-              </>
             )}
-            <p>
-              Valor: <span className="font-semibold">R$ {displayValue || '0,00'}</span>
-            </p>
+            {subscriptionPaymentUrl && (
+              <a
+                href={subscriptionPaymentUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-full border border-emerald-600 px-5 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50"
+              >
+                Abrir cobrança (Asaas)
+              </a>
+            )}
+            {payment?.invoiceUrl && (
+              <a
+                href={payment.invoiceUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-full border border-emerald-600 px-5 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50"
+              >
+                Abrir fatura / checkout
+              </a>
+            )}
+            <span className="text-xs text-emerald-600">
+              {polling
+                ? 'Monitoramento automático ativo.'
+                : 'O monitoramento inicia automaticamente após gerar a cobrança.'}
+            </span>
           </div>
-        )}
 
-        {subscriptionDetails && (
-          <div className="space-y-2">
-            <h3 className="text-sm font-semibold text-zinc-700">Detalhes da assinatura</h3>
-            <pre className="whitespace-pre-wrap rounded-lg border bg-white p-3 text-xs">
-              {JSON.stringify(subscriptionDetails, null, 2)}
-            </pre>
-          </div>
-        )}
+          {payment && (
+            <div className="rounded-2xl border border-dashed border-zinc-300 p-4 text-sm text-zinc-700">
+              {payment.subscriptionId ? (
+                <>
+                  <p>
+                    Subscription ID:{' '}
+                    <span className="font-mono text-sm">{payment.subscriptionId}</span>
+                  </p>
+                  <p>Status: {status || payment.status}</p>
+                  {subscriptionPaymentId && (
+                    <p>
+                      Payment ID inicial{' '}
+                      <span className="font-mono text-sm">{subscriptionPaymentId}</span>
+                    </p>
+                  )}
+                  {subscriptionPaymentCode && (
+                    <p>
+                      Código Asaas{' '}
+                      <span className="font-mono text-sm">{subscriptionPaymentCode}</span>
+                    </p>
+                  )}
+                </>
+              ) : (
+                <>
+                  <p>
+                    Payment ID:{' '}
+                    <span className="font-mono text-sm">{payment.paymentId}</span>
+                  </p>
+                  <p>Status: {status || payment.status}</p>
+                </>
+              )}
+              <p>
+                Valor: <span className="font-semibold">R$ {displayValue || '0,00'}</span>
+              </p>
+            </div>
+          )}
 
-        {subscriptionPayments && (
-          <div className="space-y-2">
-            <h3 className="text-sm font-semibold text-zinc-700">Cobranças programadas</h3>
-            <pre className="whitespace-pre-wrap rounded-lg border bg-white p-3 text-xs">
-              {JSON.stringify(subscriptionPayments, null, 2)}
-            </pre>
-          </div>
-        )}
+          {successSummary && (
+            <div className="rounded-3xl border border-emerald-200 bg-emerald-50/90 p-6 shadow-sm">
+              <p className="text-base font-semibold text-emerald-700">Beneficiário confirmado</p>
+              <p className="mt-2 text-sm text-emerald-700">{successSummary}</p>
+              <a
+                href="/primeiro-acesso"
+                className="mt-4 inline-flex items-center justify-center rounded-full border border-emerald-600 px-5 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100"
+              >
+                Ir para o registro de acesso
+              </a>
+            </div>
+          )}
 
-        {resp && (
-          <pre className="whitespace-pre-wrap rounded-lg border bg-white p-3 text-xs">
-            {JSON.stringify(resp, null, 2)}
-          </pre>
-        )}
-      </section>
+          {subscriptionDetails && (
+            <div className="space-y-2">
+              <h3 className="text-sm font-semibold text-zinc-700">Detalhes da assinatura</h3>
+              <pre className="whitespace-pre-wrap rounded-lg border bg-white p-3 text-xs">
+                {JSON.stringify(subscriptionDetails, null, 2)}
+              </pre>
+            </div>
+          )}
+
+          {subscriptionPayments && (
+            <div className="space-y-2">
+              <h3 className="text-sm font-semibold text-zinc-700">Cobranças programadas</h3>
+              <pre className="whitespace-pre-wrap rounded-lg border bg-white p-3 text-xs">
+                {JSON.stringify(subscriptionPayments, null, 2)}
+              </pre>
+            </div>
+          )}
+
+          {resp && (
+            <div className="space-y-2">
+              <h3 className="text-sm font-semibold text-zinc-700">Resposta Rapidoc</h3>
+              <pre className="whitespace-pre-wrap rounded-lg border bg-white p-3 text-xs">
+                {JSON.stringify(resp, null, 2)}
+              </pre>
+            </div>
+          )}
+        </section>
+      )}
     </div>
   );
 }
