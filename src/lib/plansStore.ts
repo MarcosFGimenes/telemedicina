@@ -1,66 +1,115 @@
-import { promises as fs } from 'fs';
-import path from 'path';
+import type { DocumentSnapshot, QueryDocumentSnapshot } from 'firebase-admin/firestore';
+import { db } from '@/lib/firebaseAdmin';
 import type { PlanDefinition, PlanPayload, PlanUpdatePayload } from '@/types/plans';
 
-const plansFilePath = path.join(process.cwd(), 'src', 'data', 'plans.json');
+const PLANS_COLLECTION = 'plans';
 
-async function ensureFile() {
-  try {
-    await fs.access(plansFilePath);
-  } catch {
-    await fs.mkdir(path.dirname(plansFilePath), { recursive: true });
-    await fs.writeFile(plansFilePath, '[]', 'utf8');
+const toISOString = (value: unknown, fallback: string) => {
+  if (typeof value === 'string' && value.trim().length > 0) {
+    return value;
   }
-}
 
-async function readPlans(): Promise<PlanDefinition[]> {
-  await ensureFile();
-  const content = await fs.readFile(plansFilePath, 'utf8');
-  try {
-    const parsed = JSON.parse(content);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.map((plan) => ({
-      id: String(plan.id || plan.serviceType || '').toUpperCase(),
-      name: String(plan.name || '').trim(),
-      description: String(plan.description || '').trim(),
-      value: Number(plan.value || 0),
-      createdAt: plan.createdAt || new Date().toISOString(),
-      updatedAt: plan.updatedAt || plan.createdAt || new Date().toISOString(),
-    })) as PlanDefinition[];
-  } catch {
-    return [];
+  if (value && typeof value === 'object' && 'toDate' in value && typeof (value as any).toDate === 'function') {
+    try {
+      const date = (value as { toDate: () => Date }).toDate();
+      return date instanceof Date && !Number.isNaN(date.getTime()) ? date.toISOString() : fallback;
+    } catch {
+      return fallback;
+    }
   }
-}
 
-async function writePlans(plans: PlanDefinition[]) {
-  const payload = JSON.stringify(plans, null, 2);
-  await fs.writeFile(plansFilePath, payload, 'utf8');
-}
+  return fallback;
+};
+
+const normalizePlanDoc = (doc: QueryDocumentSnapshot | DocumentSnapshot): PlanDefinition => {
+  const data = (doc.data() || {}) as Record<string, unknown>;
+  const now = new Date().toISOString();
+  const serviceType = String(data.serviceType || data.id || doc.id || '').trim().toUpperCase();
+  const id = String(data.id || serviceType || doc.id || '').trim().toUpperCase() || serviceType;
+  const name = String(data.name || '').trim();
+  const description = String(data.description || '').trim();
+  const valueRaw = data.value;
+  const value = Number(
+    typeof valueRaw === 'number' || typeof valueRaw === 'string' ? valueRaw : 0,
+  );
+  const normalizedValue = Number.isFinite(value) ? value : 0;
+  const maxDependentsRaw = data.maxDependents;
+  const maxDependents = Number(
+    typeof maxDependentsRaw === 'number' || typeof maxDependentsRaw === 'string'
+      ? maxDependentsRaw
+      : 0,
+  );
+
+  const createdAt = toISOString(data.createdAt, now);
+  const updatedAt = toISOString(data.updatedAt, createdAt);
+
+  return {
+    id: id || serviceType,
+    serviceType: serviceType || id,
+    name,
+    description,
+    value: normalizedValue,
+    maxDependents: Number.isFinite(maxDependents) ? maxDependents : 0,
+    createdAt,
+    updatedAt,
+  };
+};
+
+const findPlanDoc = async (id: string) => {
+  const normalizedId = id.trim().toUpperCase();
+  if (!normalizedId) {
+    return null;
+  }
+
+  const direct = await db.collection(PLANS_COLLECTION).doc(normalizedId).get();
+  if (direct.exists) {
+    return direct;
+  }
+
+  const byId = await db
+    .collection(PLANS_COLLECTION)
+    .where('id', '==', normalizedId)
+    .limit(1)
+    .get();
+  if (!byId.empty) {
+    return byId.docs[0];
+  }
+
+  const byServiceType = await db
+    .collection(PLANS_COLLECTION)
+    .where('serviceType', '==', normalizedId)
+    .limit(1)
+    .get();
+  if (!byServiceType.empty) {
+    return byServiceType.docs[0];
+  }
+
+  return null;
+};
 
 export async function listPlans(): Promise<PlanDefinition[]> {
-  const plans = await readPlans();
-  return plans
-    .map((plan) => ({
-      ...plan,
-      id: plan.id.toUpperCase(),
-    }))
+  const snapshot = await db.collection(PLANS_COLLECTION).orderBy('name').get();
+  return snapshot.docs
+    .map((doc) => normalizePlanDoc(doc))
     .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
 }
 
 export async function getPlan(id: string): Promise<PlanDefinition | null> {
-  const plans = await readPlans();
-  const normalizedId = id.toUpperCase();
-  return plans.find((plan) => plan.id.toUpperCase() === normalizedId) ?? null;
+  const doc = await findPlanDoc(id);
+  if (!doc) {
+    return null;
+  }
+  return normalizePlanDoc(doc);
 }
 
 export async function createPlan(payload: PlanPayload): Promise<PlanDefinition> {
-  const plans = await readPlans();
   const id = payload.id.trim().toUpperCase();
   if (!id) {
     throw new Error('O código do plano é obrigatório.');
   }
 
-  if (plans.some((plan) => plan.id === id)) {
+  const existing = await findPlanDoc(id);
+  if (existing) {
     throw new Error('Já existe um plano com esse código.');
   }
 
@@ -74,30 +123,40 @@ export async function createPlan(payload: PlanPayload): Promise<PlanDefinition> 
     throw new Error('Informe um valor válido para o plano.');
   }
 
+  const maxDependents =
+    payload.maxDependents !== undefined ? Number(payload.maxDependents) : 0;
+  if (!Number.isFinite(maxDependents) || maxDependents < 0) {
+    throw new Error('Informe um número válido de dependentes.');
+  }
+
   const now = new Date().toISOString();
-  const plan: PlanDefinition = {
+
+  const data = {
     id,
+    serviceType: id,
     name,
     description: payload.description?.trim() || '',
     value,
+    maxDependents,
     createdAt: now,
     updatedAt: now,
   };
 
-  plans.push(plan);
-  await writePlans(plans);
-  return plan;
+  const docRef = db.collection(PLANS_COLLECTION).doc(id);
+  await docRef.set(data);
+
+  const created = await docRef.get();
+  return normalizePlanDoc(created);
 }
 
 export async function updatePlan(id: string, payload: PlanUpdatePayload): Promise<PlanDefinition> {
-  const plans = await readPlans();
-  const normalizedId = id.trim().toUpperCase();
-  const index = plans.findIndex((plan) => plan.id === normalizedId);
-  if (index === -1) {
+  const doc = await findPlanDoc(id);
+  if (!doc) {
     throw new Error('Plano não encontrado.');
   }
 
-  const current = plans[index];
+  const current = normalizePlanDoc(doc);
+
   const name = payload.name !== undefined ? payload.name.trim() : current.name;
   if (!name) {
     throw new Error('O nome do plano é obrigatório.');
@@ -111,31 +170,38 @@ export async function updatePlan(id: string, payload: PlanUpdatePayload): Promis
     throw new Error('Informe um valor válido para o plano.');
   }
 
+  const maxDependents =
+    payload.maxDependents !== undefined
+      ? Number(payload.maxDependents)
+      : current.maxDependents;
+  if (!Number.isFinite(maxDependents) || maxDependents < 0) {
+    throw new Error('Informe um número válido de dependentes.');
+  }
+
   const description =
     payload.description !== undefined
       ? payload.description.trim()
       : current.description;
 
-  const updated: PlanDefinition = {
-    ...current,
+  const updatedAt = new Date().toISOString();
+
+  await doc.ref.update({
     name,
     value,
     description,
-    updatedAt: new Date().toISOString(),
-  };
+    maxDependents,
+    updatedAt,
+  });
 
-  plans[index] = updated;
-  await writePlans(plans);
-  return updated;
+  const refreshed = await doc.ref.get();
+  return normalizePlanDoc(refreshed);
 }
 
 export async function deletePlan(id: string): Promise<void> {
-  const plans = await readPlans();
-  const normalizedId = id.trim().toUpperCase();
-  const filtered = plans.filter((plan) => plan.id !== normalizedId);
-  if (filtered.length === plans.length) {
+  const doc = await findPlanDoc(id);
+  if (!doc) {
     throw new Error('Plano não encontrado.');
   }
 
-  await writePlans(filtered);
+  await doc.ref.delete();
 }

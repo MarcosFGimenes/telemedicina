@@ -252,7 +252,7 @@ export default function TesteRapidocPage() {
     if (selectedPlan) {
       setForm((state) => ({
         ...state,
-        serviceType: selectedPlan.id as BeneficiaryForm['serviceType'],
+        serviceType: selectedPlan.serviceType as BeneficiaryForm['serviceType'],
       }));
     }
   }, [selectedPlan]);
