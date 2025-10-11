@@ -5,8 +5,9 @@ import AuthProvider from "@/components/auth/AuthProvider";
 import Link from "next/link";
 
 export const metadata: Metadata = {
-  title: "Telemedicina+",
-  description: "Central de assinantes e gestão administrativa integrada à Rapidoc e Asaas.",
+  title: "Medicos Consultas Online",
+  description:
+    "Central do assinante para agendamentos digitais e gestão integrada à Rapidoc e Asaas.",
 };
 
 export default function RootLayout({
@@ -23,7 +24,7 @@ export default function RootLayout({
             <main className="relative mx-auto w-full max-w-6xl px-4 pb-20 pt-10 sm:px-6 lg:px-8">{children}</main>
             <footer className="border-t border-white/60 bg-white/80 py-10 text-sm text-zinc-600">
               <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 sm:flex-row sm:items-center sm:justify-between">
-                <p className="font-medium text-emerald-700">Telemedicina+</p>
+                <p className="font-medium text-emerald-700">Medicos Consultas Online</p>
                 <p className="text-xs sm:text-sm">
                   Integração com Rapidoc &amp; Asaas para operação completa de telemedicina.
                 </p>

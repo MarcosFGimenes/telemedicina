@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { useAuthContext } from '@/components/auth/AuthProvider';
 import clsx from 'clsx';
@@ -36,14 +37,15 @@ export default function Nav() {
     <header className="sticky top-0 z-40 border-b border-white/50 bg-white/80 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
         <div className="flex items-center gap-8">
-          <Link href="/" className="flex items-center gap-2">
-            <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-600 text-sm font-semibold text-white shadow-md">
-              TM
-            </span>
-            <div className="hidden flex-col leading-tight sm:flex">
-              <span className="text-sm font-semibold text-emerald-700">Telemedicina+</span>
-              <span className="text-xs text-zinc-500">Rapidoc &amp; Asaas Hub</span>
-            </div>
+          <Link href="/" className="flex items-center">
+            <Image
+              src="/logo.png"
+              alt="Medicos Consultas Online"
+              width={120}
+              height={36}
+              className="h-9 w-auto"
+              priority
+            />
           </Link>
 
           <nav className="hidden items-center gap-1 text-sm font-medium text-zinc-600 lg:flex">
