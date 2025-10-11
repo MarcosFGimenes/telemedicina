@@ -13,6 +13,7 @@ export type AsaasCustomer = {
   cpfCnpj: string;
   email?: string;
   mobilePhone?: string;
+  phone?: string;
   postalCode?: string;
   address?: string;
   addressNumber?: string;
@@ -20,6 +21,20 @@ export type AsaasCustomer = {
   city?: string;
   cityName?: string;
   state?: string;
+  birthDate?: string;
+};
+
+export type AsaasSubscription = {
+  id: string;
+  customer: string;
+  status: string;
+  value?: number;
+  description?: string;
+  cycle?: string;
+  nextDueDate?: string;
+  billingType?: string;
+  endDate?: string | null;
+  paymentLink?: string | null;
 };
 
 export type AsaasPaymentSummary = {
@@ -39,22 +54,83 @@ export type AsaasPaymentSummary = {
   dateCreated?: string;
   createdDate?: string;
   updatedAt?: string;
+  subscription?: string | null;
+  subscriptionId?: string | null;
 };
+
+const clampLimit = (limit?: number) => {
+  const value = typeof limit === 'number' ? limit : 50;
+  return Math.min(Math.max(value, 1), 100);
+};
+
+const sanitizeDocument = (value: string) => value.replace(/\D/g, '');
 
 export async function getAsaasCustomer(customerId: string) {
   const { data } = await asaas.get(`/customers/${customerId}`);
   return data as AsaasCustomer;
 }
 
-export async function listAsaasPaymentsByCustomer(customerId: string, limit = 50) {
-  const { data } = await asaas.get<AsaasListResponse<AsaasPaymentSummary>>('/payments', {
+export async function searchAsaasCustomersByCpf(cpf: string) {
+  const document = sanitizeDocument(cpf);
+  const { data } = await asaas.get<AsaasListResponse<AsaasCustomer>>('/customers', {
     params: {
-      customer: customerId,
-      limit: Math.min(Math.max(limit, 1), 100),
+      cpfCnpj: document,
+      limit: 1,
       offset: 0,
-      order: 'desc',
-      sort: 'dueDate',
     },
+  });
+
+  return data.data;
+}
+
+export async function findAsaasCustomerByCpf(cpf: string) {
+  const [customer] = await searchAsaasCustomersByCpf(cpf);
+  return customer ?? null;
+}
+
+export async function listAsaasSubscriptionsByCustomer(
+  customerId: string,
+  options: { status?: string; limit?: number } = {},
+) {
+  const params: Record<string, string | number> = {
+    customer: customerId,
+    limit: clampLimit(options.limit),
+    offset: 0,
+  };
+
+  if (options.status) {
+    params.status = options.status;
+  }
+
+  const { data } = await asaas.get<AsaasListResponse<AsaasSubscription>>('/subscriptions', {
+    params,
+  });
+
+  return data.data;
+}
+
+export async function listAsaasPaymentsByCustomer(
+  customerId: string,
+  options: { limit?: number; status?: string; subscription?: string } = {},
+) {
+  const params: Record<string, string | number> = {
+    customer: customerId,
+    limit: clampLimit(options.limit),
+    offset: 0,
+    order: 'desc',
+    sort: 'dueDate',
+  };
+
+  if (options.status) {
+    params.status = options.status;
+  }
+
+  if (options.subscription) {
+    params.subscription = options.subscription;
+  }
+
+  const { data } = await asaas.get<AsaasListResponse<AsaasPaymentSummary>>('/payments', {
+    params,
   });
 
   return data.data;
