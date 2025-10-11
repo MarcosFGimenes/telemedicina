@@ -39,16 +39,41 @@ const SAMPLE: BeneficiaryForm = {
   general: 'General purpose',
 };
 
+const ASAAS_SANDBOX_PAYMENT_BASE_URL = 'https://sandbox.asaas.com/i/';
+
 const extractMessage = (payload: unknown): string | null => {
-  if (!payload || typeof payload !== 'object') return null;
+  if (!payload) return null;
+  if (typeof payload === 'string') {
+    return payload.trim().length > 0 ? payload : null;
+  }
+  if (Array.isArray(payload)) {
+    for (const item of payload) {
+      const message = extractMessage(item);
+      if (message) return message;
+    }
+    return null;
+  }
+  if (typeof payload !== 'object') return null;
+
   const record = payload as Record<string, unknown>;
-  const keys = ['error', 'message', 'backend'] as const;
+  const keys = ['error', 'message', 'backend', 'description', 'detail'] as const;
   for (const key of keys) {
     const value = record[key];
     if (typeof value === 'string' && value.trim().length > 0) {
       return value;
     }
   }
+
+  const errors = record.errors;
+  if (Array.isArray(errors)) {
+    const nested = errors
+      .map((item) => extractMessage(item))
+      .filter((value): value is string => Boolean(value));
+    if (nested.length > 0) {
+      return nested.join(' | ');
+    }
+  }
+
   return null;
 };
 
@@ -56,12 +81,103 @@ const getErrorMessage = (error: unknown, fallback: string) => {
   if (axios.isAxiosError(error)) {
     const message = extractMessage(error.response?.data);
     if (message) return message;
+    try {
+      if (error.response?.data) {
+        return JSON.stringify(error.response.data, null, 2);
+      }
+    } catch (serializationError) {
+      if (serializationError instanceof Error && serializationError.message) {
+        return `${fallback}: ${serializationError.message}`;
+      }
+    }
   }
   if (error instanceof Error && error.message) {
     return error.message;
   }
   const message = extractMessage(error);
   return message || fallback;
+};
+
+type PaymentExtraction = {
+  firstPaymentId: string;
+  firstPaymentStatus: string;
+  hasSuccessfulPayment: boolean;
+};
+
+const extractFirstPayment = (payload: unknown): PaymentExtraction => {
+  const fallback: PaymentExtraction = {
+    firstPaymentId: '',
+    firstPaymentStatus: '',
+    hasSuccessfulPayment: false,
+  };
+  if (!payload) return fallback;
+
+  const resolveArray = (items: unknown[]): PaymentExtraction => {
+    let firstPaymentId = '';
+    let firstPaymentStatus = '';
+    for (const item of items) {
+      if (!item || typeof item !== 'object') continue;
+      const record = item as Record<string, unknown>;
+      const id = typeof record.id === 'string' ? record.id : '';
+      const status = typeof record.status === 'string' ? record.status : '';
+      if (!firstPaymentId && id) {
+        firstPaymentId = id;
+        firstPaymentStatus = status;
+      }
+    }
+    return { firstPaymentId, firstPaymentStatus, hasSuccessfulPayment: false };
+  };
+
+  if (Array.isArray(payload)) {
+    return resolveArray(payload);
+  }
+
+  if (typeof payload === 'object') {
+    const record = payload as Record<string, unknown>;
+    const data = record.data;
+    if (Array.isArray(data)) {
+      const fromData = resolveArray(data);
+      if (fromData.firstPaymentId) {
+        return fromData;
+      }
+    }
+    const items = record.items;
+    if (Array.isArray(items)) {
+      const fromItems = resolveArray(items);
+      if (fromItems.firstPaymentId) {
+        return fromItems;
+      }
+    }
+  }
+
+  return fallback;
+};
+
+const detectSuccessfulPayment = (payload: unknown, successStatuses: Set<string>): boolean => {
+  if (!payload || successStatuses.size === 0) return false;
+
+  const hasSuccess = (items: unknown[]): boolean =>
+    items.some((entry) => {
+      if (!entry || typeof entry !== 'object') return false;
+      const status = (entry as Record<string, unknown>).status;
+      return typeof status === 'string' && successStatuses.has(status);
+    });
+
+  if (Array.isArray(payload)) {
+    return hasSuccess(payload);
+  }
+
+  if (typeof payload === 'object') {
+    const record = payload as Record<string, unknown>;
+    if (Array.isArray(record.data) && hasSuccess(record.data)) {
+      return true;
+    }
+    if (Array.isArray(record.items) && hasSuccess(record.items)) {
+      return true;
+    }
+  }
+
+  return false;
 };
 
 export default function TesteRapidocPage() {
@@ -80,8 +196,25 @@ export default function TesteRapidocPage() {
   const [polling, setPolling] = useState(false);
   const [subscriptionDetails, setSubscriptionDetails] = useState<unknown>(null);
   const [subscriptionPayments, setSubscriptionPayments] = useState<unknown>(null);
+  const [subscriptionPaymentId, setSubscriptionPaymentId] = useState('');
+  const [subscriptionPaymentUrl, setSubscriptionPaymentUrl] = useState('');
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const successSet = useRef(new Set<string>(PAYMENT_SUCCESS_STATUSES));
+  const paymentRef = useRef<CheckoutResponse | null>(null);
+  const beneficiaryCreatedRef = useRef(false);
+  const checkingRef = useRef(false);
+
+  useEffect(() => {
+    paymentRef.current = payment;
+  }, [payment]);
+
+  useEffect(() => {
+    checkingRef.current = checking;
+  }, [checking]);
+
+  const subscriptionPaymentCode = useMemo(() => {
+    return subscriptionPaymentId ? subscriptionPaymentId.replace(/^pay_/, '') : '';
+  }, [subscriptionPaymentId]);
 
   useEffect(() => {
     const fetchPlans = async () => {
@@ -133,6 +266,9 @@ export default function TesteRapidocPage() {
       stopPolling();
       setSubscriptionDetails(null);
       setSubscriptionPayments(null);
+      setSubscriptionPaymentId('');
+      setSubscriptionPaymentUrl('');
+      beneficiaryCreatedRef.current = false;
 
       if (!selectedPlan) {
         setErr('Selecione um plano antes de criar a assinatura.');
@@ -174,9 +310,8 @@ export default function TesteRapidocPage() {
       setPayment(data);
       setStatus(data.status);
 
-      if (data.paymentId) {
-        // inicia polling automático para status quando há cobrança única
-        startPolling();
+      if (data.subscriptionId) {
+        await fetchSubscriptionPaymentsById(data.subscriptionId);
       }
     } catch (error: unknown) {
       setErr(getErrorMessage(error, 'Erro ao criar assinatura'));
@@ -184,57 +319,105 @@ export default function TesteRapidocPage() {
   };
 
   const checkStatus = async () => {
-    if (payment?.subscriptionId) {
+    if (checkingRef.current) return;
+    checkingRef.current = true;
+    const currentPayment = paymentRef.current;
+    if (currentPayment?.subscriptionId) {
       try {
         setChecking(true);
         const { data } = await axios.get<Record<string, unknown>>(
-          `/api/asaas/subscriptions/${payment.subscriptionId}`,
+          `/api/asaas/subscriptions/${currentPayment.subscriptionId}`,
         );
         const rawStatus = data['status'];
         setStatus(typeof rawStatus === 'string' ? rawStatus : '');
         setSubscriptionDetails(data);
+        const extraction = await fetchSubscriptionPaymentsById(currentPayment.subscriptionId, {
+          silent: true,
+        });
+        const shouldCreate =
+          extraction.hasSuccessfulPayment ||
+          (extraction.firstPaymentStatus &&
+            successSet.current.has(String(extraction.firstPaymentStatus)));
+        if (shouldCreate && !beneficiaryCreatedRef.current) {
+          const created = await createBeneficiary();
+          if (created) {
+            stopPolling();
+          }
+        }
       } catch (error: unknown) {
         setErr(getErrorMessage(error, 'Falha ao consultar assinatura'));
       } finally {
         setChecking(false);
+        checkingRef.current = false;
       }
       return;
     }
 
-    if (!payment?.paymentId) return;
+    if (!currentPayment?.paymentId) {
+      checkingRef.current = false;
+      return;
+    }
     try {
       setChecking(true);
-      const { data } = await axios.get<StatusResponse>(`/api/checkout/status/${payment.paymentId}`);
+      const { data } = await axios.get<StatusResponse>(`/api/checkout/status/${currentPayment.paymentId}`);
       setStatus(data.status);
       // se confirmado, cria beneficiário automaticamente
-      if (successSet.current.has(String(data.status))) {
-        await createBeneficiary();
-        stopPolling();
+      if (successSet.current.has(String(data.status)) && !beneficiaryCreatedRef.current) {
+        const created = await createBeneficiary();
+        if (created) {
+          stopPolling();
+        }
       }
     } catch (error: unknown) {
       setErr(getErrorMessage(error, 'Falha ao checar status'));
     } finally {
       setChecking(false);
+      checkingRef.current = false;
+    }
+  };
+
+  const fetchSubscriptionPaymentsById = async (
+    subscriptionId: string,
+    options?: { silent?: boolean },
+  ): Promise<PaymentExtraction> => {
+    try {
+      if (!options?.silent) {
+        setErr('');
+      }
+      const { data } = await axios.get(`/api/asaas/subscriptions/${subscriptionId}/payments`);
+      setSubscriptionPayments(data);
+      const extraction = extractFirstPayment(data);
+      const hasSuccess = detectSuccessfulPayment(data, successSet.current);
+      const result: PaymentExtraction = {
+        ...extraction,
+        hasSuccessfulPayment: hasSuccess,
+      };
+      setSubscriptionPaymentId(result.firstPaymentId);
+      const code = result.firstPaymentId.replace(/^pay_/, '');
+      setSubscriptionPaymentUrl(code ? `${ASAAS_SANDBOX_PAYMENT_BASE_URL}${code}` : '');
+      return result;
+    } catch (error: unknown) {
+      const message = getErrorMessage(error, 'Falha ao listar cobranças da assinatura');
+      setErr(message);
+      setSubscriptionPaymentId('');
+      setSubscriptionPaymentUrl('');
+      return { firstPaymentId: '', firstPaymentStatus: '', hasSuccessfulPayment: false };
     }
   };
 
   const listSubscriptionPayments = async () => {
-    if (!payment?.subscriptionId) return;
-    try {
-      setErr('');
-      const { data } = await axios.get(
-        `/api/asaas/subscriptions/${payment.subscriptionId}/payments`,
-      );
-      setSubscriptionPayments(data);
-    } catch (error: unknown) {
-      setErr(getErrorMessage(error, 'Falha ao listar cobranças da assinatura'));
-    }
+    const currentPayment = paymentRef.current;
+    if (!currentPayment?.subscriptionId) return;
+    await fetchSubscriptionPaymentsById(currentPayment.subscriptionId);
   };
 
   const startPolling = () => {
     if (pollingRef.current) return;
     setPolling(true);
-    pollingRef.current = setInterval(checkStatus, 4000);
+    pollingRef.current = setInterval(() => {
+      void checkStatus();
+    }, 4000);
+    void checkStatus();
   };
 
   const stopPolling = () => {
@@ -247,15 +430,27 @@ export default function TesteRapidocPage() {
 
   useEffect(() => () => stopPolling(), []);
 
-  const createBeneficiary = async () => {
+  useEffect(() => {
+    const current = payment;
+    if (!current?.paymentId && !current?.subscriptionId) {
+      return;
+    }
+    startPolling();
+  }, [payment]);
+
+  const createBeneficiary = async (): Promise<boolean> => {
     try {
       setErr('');
       setResp(null);
       const payload = [form];
       const { data } = await axios.post('/api/rapidoc/beneficiaries', payload);
       setResp(data);
+      beneficiaryCreatedRef.current = true;
+      return true;
     } catch (error: unknown) {
+      beneficiaryCreatedRef.current = false;
       setErr(getErrorMessage(error, 'Erro ao criar beneficiário'));
+      return false;
     }
   };
 
@@ -360,19 +555,12 @@ export default function TesteRapidocPage() {
           </p>
         </div>
 
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={createSubscription}
             className="rounded-md bg-zinc-900 px-4 py-2 text-white"
           >
             Criar assinatura
-          </button>
-          <button
-            onClick={polling ? stopPolling : startPolling}
-            disabled={!payment?.paymentId}
-            className="rounded-md border border-zinc-300 px-4 py-2 disabled:opacity-60"
-          >
-            {polling ? 'Parar polling' : 'Iniciar polling'}
           </button>
           <button
             onClick={checkStatus}
@@ -386,13 +574,30 @@ export default function TesteRapidocPage() {
                 : 'Verificar status'}
           </button>
           {payment?.subscriptionId && (
-            <button
-              onClick={listSubscriptionPayments}
-              className="rounded-md border border-zinc-300 px-4 py-2 disabled:opacity-60"
-            >
-              Cobranças da assinatura
-            </button>
+            <>
+              <button
+                onClick={listSubscriptionPayments}
+                className="rounded-md border border-zinc-300 px-4 py-2 disabled:opacity-60"
+              >
+                Atualizar cobranças
+              </button>
+              {subscriptionPaymentUrl && (
+                <a
+                  href={subscriptionPaymentUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded-md border border-emerald-600 px-4 py-2 text-emerald-700 transition hover:bg-emerald-50"
+                >
+                  Abrir cobrança (Asaas)
+                </a>
+              )}
+            </>
           )}
+          <span className="text-xs text-emerald-600">
+            {polling
+              ? 'Monitoramento automático ativo.'
+              : 'O monitoramento inicia automaticamente após gerar a cobrança.'}
+          </span>
         </div>
 
         {payment && payment.invoiceUrl && (
@@ -415,6 +620,18 @@ export default function TesteRapidocPage() {
                   <span className="font-mono text-sm">{payment.subscriptionId}</span>
                 </p>
                 <p>Status: {status || payment.status}</p>
+                {subscriptionPaymentId && (
+                  <p>
+                    Payment ID inicial{' '}
+                    <span className="font-mono text-sm">{subscriptionPaymentId}</span>
+                  </p>
+                )}
+                {subscriptionPaymentCode && (
+                  <p>
+                    Código Asaas{' '}
+                    <span className="font-mono text-sm">{subscriptionPaymentCode}</span>
+                  </p>
+                )}
               </>
             ) : (
               <>
