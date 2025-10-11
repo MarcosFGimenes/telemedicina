@@ -19,8 +19,12 @@ export type CheckoutRequestBody = {
   cpf: string;
   email?: string;
   mobilePhone?: string;
+  phone?: string;
   zipCode?: string;
   address?: string;
+  addressNumber?: string;
+  addressComplement?: string;
+  neighborhood?: string;
   city?: string;
   state?: string;
   birthday?: string;
@@ -70,6 +74,8 @@ export type CheckoutResponse = {
   subscriptionId?: string;
   checkoutId?: string;
   checkoutUrl?: string;
+  checkoutLink?: string;
+  minutesToExpire?: number;
   status: string;
   invoiceUrl?: string | null;
   pix?: {
@@ -82,7 +88,7 @@ export type CheckoutResponse = {
   description?: string | null;
   paymentType?: string;
   planId?: string;
-  chargeType?: 'RECURRENT' | 'INSTALLMENT' | string;
+  chargeType?: 'RECURRENT' | 'INSTALLMENT' | 'DETACHED' | string;
 };
 
 export type StatusResponse = {

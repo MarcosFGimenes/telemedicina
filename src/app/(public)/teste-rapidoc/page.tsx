@@ -84,12 +84,12 @@ export default function TesteRapidocPage() {
       try {
         setLoadingPlans(true);
         setPlansError('');
-        const { data } = await axios.get<PlanOption[]>('/api/rapidoc/planos');
+        const { data } = await axios.get<PlanOption[]>('/api/plans');
         const fetched = Array.isArray(data) ? data : [];
         setPlans(fetched);
         setSelectedPlanId((current) => current || fetched[0]?.id || '');
       } catch (err: unknown) {
-        setPlansError(getErrorMessage(err, 'Erro ao buscar planos da Rapidoc'));
+        setPlansError(getErrorMessage(err, 'Erro ao buscar planos cadastrados'));
       } finally {
         setLoadingPlans(false);
       }
@@ -129,8 +129,9 @@ export default function TesteRapidocPage() {
   const checkoutUrl = useMemo(() => {
     if (!checkout) return '';
     return (
+      checkout.checkoutLink ||
       checkout.checkoutUrl ||
-      (checkout.checkoutId ? `https://asaas.com/checkoutSession/show?id=${checkout.checkoutId}` : '')
+      (checkout.checkoutId ? `https://sandbox.asaas.com/checkoutSession/show/${checkout.checkoutId}` : '')
     );
   }, [checkout]);
 
@@ -159,6 +160,7 @@ export default function TesteRapidocPage() {
         cpf: form.cpf,
         email: form.email,
         mobilePhone: form.phone,
+        phone: form.phone,
         zipCode: form.zipCode,
         address: form.address,
         city: form.city,
@@ -174,7 +176,10 @@ export default function TesteRapidocPage() {
       const { data } = await axios.post<CheckoutResponse>('/api/checkout/pagar', payload);
       setCheckout(data);
 
-      const url = data.checkoutUrl || (data.checkoutId ? `https://asaas.com/checkoutSession/show?id=${data.checkoutId}` : '');
+      const url =
+        data.checkoutLink ||
+        data.checkoutUrl ||
+        (data.checkoutId ? `https://sandbox.asaas.com/checkoutSession/show/${data.checkoutId}` : '');
       if (url) {
         setRedirecting(true);
         setTimeout(() => {

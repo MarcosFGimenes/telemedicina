@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import type { BillingType } from '@/types/checkout';
 
@@ -19,22 +19,23 @@ const OPTIONS: MethodOption[] = [
   {
     value: 'BOLETO',
     label: 'Boleto',
-    description: 'Gerar boleto bancário com vencimento definido.',
+    description: 'Indisponivel no checkout Asaas v3. Utilize Pix ou Cartao.',
+    disabled: true,
   },
   {
     value: 'CREDIT_CARD',
-    label: 'Cartão de crédito',
-    description: 'Processar cobrança usando cartão de crédito sandbox.',
+    label: 'Cartao de credito',
+    description: 'Processar cobranca usando cartao de credito sandbox.',
   },
   {
     value: 'UNDEFINED',
     label: 'Checkout Asaas',
-    description: 'Redirecionar para o checkout do Asaas e escolher o método na hora.',
+    description: 'Redirecionar para o checkout do Asaas e escolher o metodo na hora.',
   },
   {
     value: 'PIX',
     label: 'PIX',
-    description: 'Gerar QR Code PIX com confirmação em tempo real.',
+    description: 'Gerar QR Code PIX com confirmacao em tempo real.',
   },
 ];
 
@@ -43,7 +44,7 @@ export default function PaymentMethodSelector({ value, onChange, pixAvailable }:
     option.value === 'PIX' && !pixAvailable
       ? {
           ...option,
-          description: 'Disponível em breve – use Boleto ou Cartão por enquanto.',
+          description: 'Dispon�vel em breve � use Boleto ou Cart�o por enquanto.',
           disabled: true,
         }
       : option,

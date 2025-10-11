@@ -1,12 +1,1 @@
-[
-  {
-    "id": "GSP",
-    "serviceType": "GSP",
-    "name": "Familiar Plus",
-    "description": "Generalista 24/7 + Especialidades + Psicologo",
-    "value": 69.9,
-    "maxDependents": 4,
-    "createdAt": "2025-10-09T02:37:41.008Z",
-    "updatedAt": "2025-10-09T02:37:41.008Z"
-  }
-]
+[]

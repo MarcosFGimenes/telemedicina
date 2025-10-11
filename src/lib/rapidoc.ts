@@ -23,14 +23,30 @@ if (!rawBaseURL) {
   throw new Error('RAPIDOC_BASE_URL is not defined');
 }
 
-let baseURL = rawBaseURL;
-if (baseURL.startsWith('http://')) {
-  baseURL = baseURL.replace(/^http:\/\//, 'https://');
+const DEFAULT_API_PREFIX = '/tema/api';
+const ABSOLUTE_URL_REGEX = /^https?:\/\//i;
+
+let normalizedRawBaseUrl = rawBaseURL;
+if (normalizedRawBaseUrl.startsWith('http://')) {
+  normalizedRawBaseUrl = normalizedRawBaseUrl.replace(/^http:\/\//, 'https://');
   if (!warnedInsecureBaseUrl) {
     console.warn('[rapidoc] Normalizing RAPIDOC_BASE_URL to https. Original:', rawBaseURL);
     warnedInsecureBaseUrl = true;
   }
 }
+
+const parsedBaseUrl = (() => {
+  try {
+    return new URL(normalizedRawBaseUrl);
+  } catch {
+    throw new Error(`Invalid RAPIDOC_BASE_URL: ${normalizedRawBaseUrl}`);
+  }
+})();
+
+const baseURL = `${parsedBaseUrl.protocol}//${parsedBaseUrl.host}`;
+const parsedPathname = parsedBaseUrl.pathname.replace(/\/+$/, '');
+const apiPrefix =
+  parsedPathname && parsedPathname !== '/' ? parsedPathname : DEFAULT_API_PREFIX;
 
 const rapidoc = axios.create({
   baseURL,
@@ -55,6 +71,45 @@ const buildUrl = (config: AxiosRequestConfig, fallbackBase: string) => {
 const maskUrl = (value: string) => value.replace(/\d{5,}/g, '*********');
 
 const truncate = (value: string) => (value.length <= 8 ? value : `${value.slice(0, 8)}...`);
+
+const ensureLeadingSlash = (value: string) => {
+  if (!value) {
+    return '/';
+  }
+  return value.startsWith('/') ? value : `/${value}`;
+};
+
+const ensureApiPrefix = (value?: string | null) => {
+  if (!value) {
+    return apiPrefix;
+  }
+
+  if (ABSOLUTE_URL_REGEX.test(value)) {
+    return value;
+  }
+
+  const normalized = ensureLeadingSlash(String(value).trim());
+  const normalizedPrefix = apiPrefix === '/' ? '' : apiPrefix;
+
+  if (!normalizedPrefix) {
+    return normalized;
+  }
+
+  if (normalized === '/') {
+    return normalizedPrefix;
+  }
+
+  if (normalized.startsWith(normalizedPrefix)) {
+    return normalized;
+  }
+
+  const prefix = normalizedPrefix.endsWith('/')
+    ? normalizedPrefix.slice(0, -1)
+    : normalizedPrefix;
+
+  const path = normalized === '/' ? '' : normalized;
+  return `${prefix}${path}`;
+};
 
 const sanitizeHeadersForLog = (headers: Record<string, unknown>) => {
   const sanitized: Record<string, string> = {};
@@ -150,6 +205,11 @@ rapidoc.interceptors.request.use((config) => {
   });
 
   config.headers = mergedHeaders;
+  const isAbsoluteUrl = typeof config.url === 'string' && ABSOLUTE_URL_REGEX.test(config.url);
+  if (!isAbsoluteUrl) {
+    config.url = ensureApiPrefix(config.url);
+  }
+  config.baseURL = baseURL;
 
   const requestUrl = buildUrl(config, baseURL);
   config.metadata = {

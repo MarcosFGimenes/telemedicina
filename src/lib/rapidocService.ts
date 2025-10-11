@@ -1,17 +1,77 @@
 import axios from 'axios';
 
-const RAPIDOC_BASE_URL = (process.env.RAPIDOC_BASE_URL ?? '').trim();
+const DEFAULT_API_PREFIX = '/tema/api';
+const ABSOLUTE_URL_REGEX = /^https?:\/\//i;
+
+const rawBaseUrl = (process.env.RAPIDOC_BASE_URL ?? '').trim();
 const RAPIDOC_TOKEN = (process.env.RAPIDOC_TOKEN ?? '').trim();
 const RAPIDOC_CLIENT_ID = (process.env.RAPIDOC_CLIENT_ID ?? '').trim();
 
-if (!RAPIDOC_BASE_URL) {
+if (!rawBaseUrl) {
   throw new Error('RAPIDOC_BASE_URL is not defined');
 }
 
+let normalizedRawBaseUrl = rawBaseUrl;
+if (normalizedRawBaseUrl.startsWith('http://')) {
+  normalizedRawBaseUrl = normalizedRawBaseUrl.replace(/^http:\/\//, 'https://');
+}
+
+const parsedBaseUrl = (() => {
+  try {
+    return new URL(normalizedRawBaseUrl);
+  } catch {
+    throw new Error(`Invalid RAPIDOC_BASE_URL: ${normalizedRawBaseUrl}`);
+  }
+})();
+
+const baseURL = `${parsedBaseUrl.protocol}//${parsedBaseUrl.host}`;
+const parsedPathname = parsedBaseUrl.pathname.replace(/\/+$/, '');
+const apiPrefix =
+  parsedPathname && parsedPathname !== '/' ? parsedPathname : DEFAULT_API_PREFIX;
+
 const rapidoc = axios.create({
-  baseURL: RAPIDOC_BASE_URL,
+  baseURL,
   timeout: 30000,
 });
+
+const ensureLeadingSlash = (value: string) => {
+  if (!value) {
+    return '/';
+  }
+  return value.startsWith('/') ? value : `/${value}`;
+};
+
+const ensureApiPrefix = (value?: string | null) => {
+  if (!value) {
+    return apiPrefix;
+  }
+
+  if (ABSOLUTE_URL_REGEX.test(value)) {
+    return value;
+  }
+
+  const normalized = ensureLeadingSlash(String(value).trim());
+  const normalizedPrefix = apiPrefix === '/' ? '' : apiPrefix;
+
+  if (!normalizedPrefix) {
+    return normalized;
+  }
+
+  if (normalized === '/') {
+    return normalizedPrefix;
+  }
+
+  if (normalized.startsWith(normalizedPrefix)) {
+    return normalized;
+  }
+
+  const prefix = normalizedPrefix.endsWith('/')
+    ? normalizedPrefix.slice(0, -1)
+    : normalizedPrefix;
+
+  const path = normalized === '/' ? '' : normalized;
+  return `${prefix}${path}`;
+};
 
 rapidoc.defaults.headers.common.Accept = 'application/json';
 if (RAPIDOC_TOKEN) {
@@ -23,6 +83,15 @@ if (RAPIDOC_CLIENT_ID) {
 rapidoc.defaults.headers.post['Content-Type'] = 'application/vnd.rapidoc.tema-v2+json';
 rapidoc.defaults.headers.put['Content-Type'] = 'application/vnd.rapidoc.tema-v2+json';
 rapidoc.defaults.headers.patch['Content-Type'] = 'application/vnd.rapidoc.tema-v2+json';
+
+rapidoc.interceptors.request.use((config) => {
+  const isAbsoluteUrl = typeof config.url === 'string' && ABSOLUTE_URL_REGEX.test(config.url);
+  if (!isAbsoluteUrl) {
+    config.url = ensureApiPrefix(config.url);
+  }
+  config.baseURL = baseURL;
+  return config;
+});
 
 export const onlyDigits = (s?: string | null) => (s ?? '').replace(/\D/g, '');
 export const sanitizeCPF = (cpf: string) => onlyDigits(cpf);

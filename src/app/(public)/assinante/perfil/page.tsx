@@ -146,13 +146,13 @@ export default function PerfilPage() {
       try {
         setLoadingPlans(true);
         setPlansError('');
-        const res = await fetch('/api/rapidoc/planos');
+        const res = await fetch('/api/plans');
         const data = await res.json().catch(() => null);
-        if (!res.ok) throw new Error((data as any)?.error || 'Falha ao buscar planos');
+        if (!res.ok) throw new Error((data as any)?.error || 'Falha ao buscar planos cadastrados');
         const options = Array.isArray(data) ? (data as PlanOption[]) : [];
         setPlans(options);
       } catch (error: any) {
-        setPlansError(error?.message || 'Não foi possível carregar planos.');
+        setPlansError(error?.message || 'Nao foi possivel carregar planos cadastrados.');
       } finally {
         setLoadingPlans(false);
       }

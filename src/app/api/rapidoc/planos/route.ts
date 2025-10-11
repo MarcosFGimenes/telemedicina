@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { NextResponse } from 'next/server';
+
 import { fetchPlans } from '@/lib/rapidocSync';
 
 export async function GET() {
@@ -11,12 +12,13 @@ export async function GET() {
       const status = error.response?.status ?? 502;
       return NextResponse.json(
         {
-          error: 'Não foi possível consultar os planos da Rapidoc.',
+          error: 'Nao foi possivel consultar os planos da Rapidoc.',
           upstream: error.response?.data ?? null,
         },
         { status },
       );
     }
+
     return NextResponse.json(
       { error: 'Erro inesperado ao consultar planos na Rapidoc.' },
       { status: 500 },
