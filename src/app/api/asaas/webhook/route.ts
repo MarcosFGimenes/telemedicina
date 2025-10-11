@@ -12,7 +12,7 @@ import {
   reactivateBeneficiary,
 } from '@/lib/rapidocService';
 
-const SECRET = process.env.ASAAS_WEBHOOK_SECRET || '';
+const SECRET = (process.env.ASAAS_WEBHOOK_SECRET || '').trim();
 
 const ACTIVATION_EVENTS = new Set(['PAYMENT_RECEIVED', 'PAYMENT_CONFIRMED']);
 const DEACTIVATION_EVENTS = new Set([
@@ -29,9 +29,18 @@ const TRACKED_EVENTS = new Set([
 ]);
 
 export async function POST(req: NextRequest) {
-  const token = req.headers.get('asaas-access-token');
-  if (!token || token !== SECRET) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  const url = new URL(req.url);
+  const providedToken =
+    req.headers.get('asaas-access-token') ||
+    req.headers.get('asaas_access_token') ||
+    req.headers.get('access_token') ||
+    req.headers.get('access-token') ||
+    url.searchParams.get('access_token');
+
+  if (SECRET && SECRET.length > 0) {
+    if (!providedToken || providedToken.trim() !== SECRET) {
+      return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+    }
   }
 
   const event = await req.json();
