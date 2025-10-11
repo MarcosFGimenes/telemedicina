@@ -47,6 +47,7 @@ export async function POST(req: NextRequest) {
   const type = event?.event as string;
   const payment = event?.payment;
   const customerId: string | undefined = payment?.customer;
+  const eventId: string | undefined = event?.id;
 
   if (!customerId) {
     return NextResponse.json({ ok: true, note: 'missing customer id' });
@@ -54,6 +55,29 @@ export async function POST(req: NextRequest) {
 
   if (!TRACKED_EVENTS.has(type)) {
     return NextResponse.json({ ok: true, note: `event ${type} ignored` });
+  }
+
+  // Idempotency: ensure each Asaas event is processed once
+  if (eventId) {
+    try {
+      await db
+        .collection('webhookEvents')
+        .doc(String(eventId))
+        .create({
+          provider: 'asaas',
+          type,
+          customerId,
+          paymentId: payment?.id ?? null,
+          receivedAt: new Date(),
+        });
+    } catch (err: any) {
+      const code = String(err?.code || err?.details || err?.message || '');
+      // Firestore may surface codes like 'already-exists' or status 6 (ALREADY_EXISTS)
+      if (code.includes('already') || code.includes('ALREADY') || code.includes('6')) {
+        return NextResponse.json({ ok: true, note: 'duplicate event ignored' });
+      }
+      console.error('[asaas/webhook] idempotency check failed', eventId, err);
+    }
   }
 
   const snapshot = await db

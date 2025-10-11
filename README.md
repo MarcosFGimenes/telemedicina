@@ -1,5 +1,14 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Asaas Webhooks (Sandbox)
+
+- Webhook endpoint: `/api/asaas/webhook`.
+- Configure `ASAAS_API_URL`, `ASAAS_API_KEY` e `ASAAS_WEBHOOK_SECRET` (veja `.env.example`).
+- O handler valida `asaas-access-token`, processa `PAYMENT_CONFIRMED`/`PAYMENT_RECEIVED` e gerencia beneficiários automaticamente.
+- Idempotência: eventos são registrados em `webhookEvents/{event.id}` para evitar duplicidade.
+
+See docs/asaas-webhooks.md for a full step‑by‑step guide.
+
 ## Getting Started
 
 First, run the development server:
