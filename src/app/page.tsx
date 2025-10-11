@@ -2,19 +2,19 @@ import Link from 'next/link';
 
 const features = [
   {
-    title: 'Agendamentos em poucos cliques',
+    title: 'Consultas confirmadas em minutos',
     description:
-      'Seu assinante escolhe a especialidade, o beneficiário e confirma a consulta online sem depender do suporte.',
+      'O assinante seleciona a especialidade, escolhe o melhor horário e recebe a confirmação automática direto na Rapidoc.',
   },
   {
-    title: 'Dependentes e beneficiários organizados',
+    title: 'Gestão completa da família',
     description:
-      'Cadastro guiado com integração automática à Rapidoc e sincronização com o Firestore para vínculo imediato.',
+      'Dependentes e beneficiários são adicionados em um fluxo guiado com sincronização imediata no Firestore.',
   },
   {
-    title: 'Cobrança e ativação automatizadas',
+    title: 'Pagamentos claros e seguros',
     description:
-      'Acompanhe pagamentos Asaas, libere planos e gere faturas com visibilidade em tempo real.',
+      'Cobranças realizadas pelo Asaas com histórico acessível, recibos disponíveis e avisos de renovação para o assinante.',
   },
 ];
 
@@ -24,14 +24,14 @@ export default function Home() {
       <section className="grid gap-10 rounded-3xl border border-white/70 bg-white/80 p-8 shadow-sm backdrop-blur lg:grid-cols-[1.3fr,1fr] lg:items-center lg:p-12">
         <div className="space-y-6">
           <span className="inline-flex items-center rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
-            Fluxo digital ponta a ponta
+            Experiência pensada para o assinante
           </span>
           <h1 className="text-4xl font-semibold text-zinc-900 sm:text-5xl">
-            Telemedicina+ unifica experiência do assinante e gestão operacional.
+            Medicos Consultas Online coloca cada beneficiário no controle das suas consultas.
           </h1>
           <p className="text-lg text-zinc-600">
-            Simplifique o acesso à saúde digital oferecendo autonomia total ao beneficiário e ao time administrativo.
-            A plataforma integra Rapidoc e Asaas desde o agendamento até a ativação do plano.
+            Simplifique o cuidado digital oferecendo autonomia real para o assinante. A plataforma conecta agendamentos,
+            pagamentos e prontidão do time médico em um ambiente único, integrando Rapidoc e Asaas do convite à consulta.
           </p>
           <div className="flex flex-col gap-3 sm:flex-row">
             <Link
@@ -49,25 +49,23 @@ export default function Home() {
           </div>
         </div>
         <div className="space-y-5 rounded-2xl border border-emerald-100 bg-gradient-to-br from-white via-emerald-50 to-emerald-100 p-6 shadow-inner">
-          <p className="text-sm font-semibold uppercase tracking-wide text-emerald-700">
-            Fluxo recomendado
-          </p>
+          <p className="text-sm font-semibold uppercase tracking-wide text-emerald-700">Como o assinante avança</p>
           <ol className="space-y-3 text-sm text-zinc-600">
             <li className="rounded-xl border border-emerald-100 bg-white/80 p-3 shadow-sm">
-              <strong className="text-emerald-700">1. Login simplificado</strong>
-              <span className="block text-xs text-zinc-500">Convite via e-mail e autenticação Firebase.</span>
+              <strong className="text-emerald-700">1. Acesso instantâneo</strong>
+              <span className="block text-xs text-zinc-500">Convite enviado por e-mail, autenticação rápida via Firebase e pronto para usar.</span>
             </li>
             <li className="rounded-xl border border-emerald-100 bg-white/80 p-3 shadow-sm">
-              <strong className="text-emerald-700">2. Cadastro de dependentes</strong>
-              <span className="block text-xs text-zinc-500">Integra Rapidoc + Firestore automaticamente.</span>
+              <strong className="text-emerald-700">2. Cadastro da família</strong>
+              <span className="block text-xs text-zinc-500">Integração automática Rapidoc + Firestore com orientações passo a passo.</span>
             </li>
             <li className="rounded-xl border border-emerald-100 bg-white/80 p-3 shadow-sm">
-              <strong className="text-emerald-700">3. Agendamento e cobrança</strong>
-              <span className="block text-xs text-zinc-500">Consulta disponível e pagamento confirmado via Asaas.</span>
+              <strong className="text-emerald-700">3. Consulta garantida</strong>
+              <span className="block text-xs text-zinc-500">Agenda disponível, pagamento confirmado pelo Asaas e lembretes automáticos.</span>
             </li>
             <li className="rounded-xl border border-emerald-100 bg-white/80 p-3 shadow-sm">
-              <strong className="text-emerald-700">4. Monitoramento contínuo</strong>
-              <span className="block text-xs text-zinc-500">Painel administrativo controla status e acessos.</span>
+              <strong className="text-emerald-700">4. Acompanhamento contínuo</strong>
+              <span className="block text-xs text-zinc-500">Status da família sempre disponível e suporte acionável pelo time administrativo.</span>
             </li>
           </ol>
         </div>
@@ -81,7 +79,7 @@ export default function Home() {
               <p className="text-sm text-zinc-600">{feature.description}</p>
             </div>
             <span className="mt-6 inline-flex items-center text-xs font-semibold uppercase tracking-wide text-emerald-500">
-              Pensado para autonomia total
+              Autonomia total para o assinante
             </span>
           </div>
         ))}
@@ -89,21 +87,21 @@ export default function Home() {
 
       <section className="grid gap-6 rounded-3xl border border-white/60 bg-white/70 p-8 shadow-sm backdrop-blur lg:grid-cols-2 lg:p-12">
         <div className="space-y-4">
-          <h2 className="text-2xl font-semibold text-zinc-900">Tudo que um assinante precisa em um só lugar</h2>
+          <h2 className="text-2xl font-semibold text-zinc-900">Tudo que o assinante encontra na plataforma</h2>
           <ul className="space-y-2 text-sm text-zinc-600">
-            <li>• Histórico e status de pagamentos sincronizados com o Asaas.</li>
-            <li>• Cadastro, vínculo e gestão de dependentes sem suporte manual.</li>
-            <li>• Agendamento de consultas com confirmação imediata na Rapidoc.</li>
-            <li>• Atualização de perfil, documentos e canais de atendimento.</li>
+            <li>• Linha do tempo de pagamentos com faturas e recibos disponíveis a qualquer momento.</li>
+            <li>• Cadastro inteligente de dependentes, vínculos e permissões em um só fluxo.</li>
+            <li>• Agendamentos rápidos com confirmação imediata na Rapidoc e notificações por e-mail.</li>
+            <li>• Área pessoal com atualização de perfil, documentos e canais de atendimento.</li>
           </ul>
         </div>
         <div className="space-y-4">
-          <h2 className="text-2xl font-semibold text-zinc-900">Gestão administrativa de alto nível</h2>
+          <h2 className="text-2xl font-semibold text-zinc-900">E o time administrativo acompanha tudo</h2>
           <ul className="space-y-2 text-sm text-zinc-600">
             <li>• Monitoramento de beneficiários ativos e inativos em tempo real.</li>
             <li>• Consulta aos agendamentos e encaminhamentos diretamente da Rapidoc.</li>
-            <li>• Ferramentas de auditoria financeira e status de cobrança no Asaas.</li>
-            <li>• Estrutura modular pronta para integrações adicionais.</li>
+            <li>• Ferramentas de auditoria financeira com status e conciliação do Asaas.</li>
+            <li>• Estrutura modular pronta para integrações adicionais e expansão de serviços.</li>
           </ul>
         </div>
       </section>
