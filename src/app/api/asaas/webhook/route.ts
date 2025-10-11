@@ -2,28 +2,17 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { db } from '@/lib/firebaseAdmin';
 import { getAsaasCustomer } from '@/lib/asaasService';
-import {
-  buildBeneficiaryPayload,
-  type BeneficiaryUserRecord,
-} from '@/lib/beneficiaryPayload';
-import {
-  deactivateBeneficiary,
-  ensureBeneficiaryByCPF,
-  reactivateBeneficiary,
-} from '@/lib/rapidocService';
+import { type BeneficiaryUserRecord } from '@/lib/beneficiaryPayload';
 
 const SECRET = process.env.ASAAS_WEBHOOK_SECRET || '';
 
-const ACTIVATION_EVENTS = new Set(['PAYMENT_RECEIVED', 'PAYMENT_CONFIRMED']);
-const DEACTIVATION_EVENTS = new Set([
+const TRACKED_EVENTS = new Set([
+  'PAYMENT_RECEIVED',
+  'PAYMENT_CONFIRMED',
   'PAYMENT_OVERDUE',
   'PAYMENT_REFUNDED',
   'PAYMENT_DELETED',
   'PAYMENT_CANCELLED',
-]);
-const TRACKED_EVENTS = new Set([
-  ...ACTIVATION_EVENTS,
-  ...DEACTIVATION_EVENTS,
   'PAYMENT_CREATED',
   'PAYMENT_UPDATED',
 ]);
@@ -55,76 +44,36 @@ export async function POST(req: NextRequest) {
 
   let userRef = snapshot.empty ? null : snapshot.docs[0].ref;
   let user = snapshot.empty ? null : (snapshot.docs[0].data() as BeneficiaryUserRecord | null);
-  let asaasCustomer: Awaited<ReturnType<typeof getAsaasCustomer>> | null = null;
 
   if (!userRef) {
     const customer = await getAsaasCustomer(customerId);
-    asaasCustomer = customer;
 
-    if (!customer?.cpfCnpj) {
+    if (customer?.cpfCnpj) {
+      const created = await db.collection('users').add({
+        name: customer.name,
+        cpf: customer.cpfCnpj.replace(/\D/g, ''),
+        email: customer.email || null,
+        phone: customer.mobilePhone || null,
+        zipCode: customer.postalCode || null,
+        address: customer.address || null,
+        city: customer.city || customer.cityName || null,
+        state: customer.state || null,
+        asaasCustomerId: customer.id,
+        status: 'pending',
+        beneficiaryUuid: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      userRef = created;
+      user = (await created.get()).data() as BeneficiaryUserRecord | null;
+    } else {
       await db.collection('events').add({
         kind: 'webhook_missing_cpf',
         customerId,
         at: new Date(),
         raw: event,
       });
-      return NextResponse.json({ ok: true, note: 'missing cpf for rapidoc' });
-    }
-
-    const created = await db.collection('users').add({
-      name: customer.name,
-      cpf: customer.cpfCnpj.replace(/\D/g, ''),
-      email: customer.email || null,
-      phone: customer.mobilePhone || null,
-      zipCode: customer.postalCode || null,
-      address: customer.address || null,
-      city: customer.city || customer.cityName || null,
-      state: customer.state || null,
-      asaasCustomerId: customer.id,
-      status: 'pending',
-      beneficiaryUuid: null,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
-
-    userRef = created;
-    user = (await created.get()).data() as BeneficiaryUserRecord | null;
-  }
-
-  if (!userRef || !user) {
-    return NextResponse.json({ ok: true, note: 'user not resolved' });
-  }
-
-  const cpfDigits = String(user.cpf || '').replace(/\D/g, '');
-  const basePayload = buildBeneficiaryPayload({
-    cpf: cpfDigits,
-    user,
-    customer: asaasCustomer,
-  });
-
-  if (ACTIVATION_EVENTS.has(type)) {
-    const ensured = await ensureBeneficiaryByCPF(basePayload);
-    if (ensured?.uuid) {
-      try {
-        await reactivateBeneficiary(ensured.uuid);
-      } catch (error) {
-        console.error('[asaas/webhook] reactivate failed', ensured.uuid, error);
-      }
-
-      await userRef.update({
-        status: 'active',
-        beneficiaryUuid: ensured.uuid,
-        updatedAt: new Date(),
-      });
-    }
-  } else if (DEACTIVATION_EVENTS.has(type)) {
-    await userRef.update({ status: 'inactive', updatedAt: new Date() });
-    if (user?.beneficiaryUuid) {
-      try {
-        await deactivateBeneficiary(String(user.beneficiaryUuid));
-      } catch (error) {
-        console.error('[asaas/webhook] deactivate failed', user?.beneficiaryUuid, error);
-      }
     }
   }
 
@@ -148,11 +97,6 @@ export async function POST(req: NextRequest) {
         bankSlipUrl: payment?.bankSlipUrl ?? null,
         createdDate: payment?.dateCreated ?? payment?.createdDate ?? null,
       };
-      // Marca processed quando recebido/confirmado
-      if (ACTIVATION_EVENTS.has(type)) {
-        payload.processed = true;
-        payload.processedAt = new Date();
-      }
       await payRef.set(payload, { merge: true });
     }
   } catch (e) {
@@ -163,7 +107,7 @@ export async function POST(req: NextRequest) {
     kind: 'asaas_webhook',
     type,
     customerId,
-    userId: userRef.id,
+    userId: userRef ? userRef.id : null,
     at: new Date(),
   });
 

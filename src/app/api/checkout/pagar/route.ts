@@ -23,8 +23,22 @@ const formatDate = (value?: string) => {
 const CHECKOUT_ITEM_IMAGE_BASE64 = (process.env.ASAAS_CHECKOUT_ITEM_IMAGE_BASE64 ?? 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg==').trim();
 const DEFAULT_ADDRESS_NUMBER = 'SN';
 const DEFAULT_PROVINCE = 'Centro';
-const CHECKOUT_ALLOWED_BILLING_TYPES = new Set(['CREDIT_CARD', 'PIX'] as const);
 const cityCache = new Map<string, number>();
+
+type CheckoutBillingType = Exclude<BillingType, 'UNDEFINED'>;
+
+const resolveCheckoutBillingTypes = (value: BillingType): CheckoutBillingType[] => {
+  switch (value) {
+    case 'CREDIT_CARD':
+      return ['CREDIT_CARD'];
+    case 'PIX':
+      return ['PIX'];
+    case 'BOLETO':
+      return ['BOLETO'];
+    default:
+      return ['PIX', 'BOLETO'];
+  }
+};
 
 const normalizeText = (value: string) =>
   value
@@ -293,16 +307,10 @@ export async function POST(request: NextRequest) {
       plan.maxDependents ?? null,
     );
 
-    const normalizedBillingType = billingType.toUpperCase() as BillingType;
-    const billingTypes: string[] = (() => {
-      if (CHECKOUT_ALLOWED_BILLING_TYPES.has(normalizedBillingType)) {
-        return [normalizedBillingType];
-      }
-      if (normalizedBillingType === 'UNDEFINED' || normalizedBillingType === 'BOLETO') {
-        return Array.from(CHECKOUT_ALLOWED_BILLING_TYPES);
-      }
-      return Array.from(CHECKOUT_ALLOWED_BILLING_TYPES);
-    })();
+    const normalizedBillingType = (typeof billingType === 'string'
+      ? (billingType.toUpperCase() as BillingType)
+      : 'UNDEFINED') as BillingType;
+    const billingTypes = resolveCheckoutBillingTypes(normalizedBillingType);
 
     const chargeTypes = normalizedPaymentType === 'S' ? ['RECURRENT'] : ['DETACHED'];
 

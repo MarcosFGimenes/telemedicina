@@ -2,7 +2,7 @@
 
 import axios from 'axios';
 import { useEffect, useMemo, useState } from 'react';
-import type { BillingType, CheckoutRequestBody, CheckoutResponse } from '@/types/checkout';
+import type { CheckoutRequestBody, CheckoutResponse } from '@/types/checkout';
 import type { PlanDefinition } from '@/types/plans';
 
 type PlanOption = PlanDefinition;
@@ -41,6 +41,8 @@ const SAMPLE: BeneficiaryForm = {
 
 const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 
+type CheckoutMode = 'CARD' | 'PIX_BOLETO';
+
 const extractMessage = (payload: unknown): string | null => {
   if (!payload || typeof payload !== 'object') return null;
   const record = payload as Record<string, unknown>;
@@ -73,11 +75,10 @@ export default function TesteRapidocPage() {
   const [selectedPlanId, setSelectedPlanId] = useState('');
 
   const [form, setForm] = useState<BeneficiaryForm>(SAMPLE);
-  const [billingType, setBillingType] = useState<BillingType>('PIX');
   const [checkout, setCheckout] = useState<CheckoutResponse | null>(null);
   const [error, setError] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [redirecting, setRedirecting] = useState(false);
+  const [pendingMode, setPendingMode] = useState<CheckoutMode | null>(null);
+  const [redirectingMode, setRedirectingMode] = useState<CheckoutMode | null>(null);
 
   useEffect(() => {
     const fetchPlans = async () => {
@@ -135,7 +136,15 @@ export default function TesteRapidocPage() {
     );
   }, [checkout]);
 
-  const initiateCheckout = async () => {
+  const isBusy = pendingMode !== null;
+  const checkoutButtonLabel = (mode: CheckoutMode) => {
+    if (pendingMode === mode) {
+      return 'Preparando checkout…';
+    }
+    return mode === 'CARD' ? 'Pagar com cartão de crédito' : 'Pagar com Pix ou boleto';
+  };
+
+  const initiateCheckout = async (mode: CheckoutMode) => {
     if (!selectedPlan) {
       setError('Selecione um plano antes de continuar.');
       return;
@@ -147,13 +156,13 @@ export default function TesteRapidocPage() {
     }
 
     try {
-      setIsSubmitting(true);
-      setRedirecting(false);
+      setPendingMode(mode);
+      setRedirectingMode(null);
       setError('');
       setCheckout(null);
 
       const payload: CheckoutRequestBody = {
-        billingType,
+        billingType: mode === 'CARD' ? 'CREDIT_CARD' : 'UNDEFINED',
         value: Number(selectedPlan.value),
         description: `Assinatura ${selectedPlan.name}`,
         name: form.name,
@@ -181,7 +190,7 @@ export default function TesteRapidocPage() {
         data.checkoutUrl ||
         (data.checkoutId ? `https://sandbox.asaas.com/checkoutSession/show/${data.checkoutId}` : '');
       if (url) {
-        setRedirecting(true);
+        setRedirectingMode(mode);
         setTimeout(() => {
           window.location.href = url;
         }, 600);
@@ -189,7 +198,7 @@ export default function TesteRapidocPage() {
     } catch (err: unknown) {
       setError(getErrorMessage(err, 'Erro ao iniciar checkout no Asaas'));
     } finally {
-      setIsSubmitting(false);
+      setPendingMode((current) => (current === mode ? null : current));
     }
   };
 
@@ -292,7 +301,9 @@ export default function TesteRapidocPage() {
       <section className="space-y-4">
         <div>
           <h2 className="text-lg font-semibold text-zinc-900">Resumo e pagamento</h2>
-          <p className="text-sm text-zinc-500">Confirme os valores e escolha a forma de pagamento para abrir o checkout do Asaas.</p>
+          <p className="text-sm text-zinc-500">
+            Confirme os valores e escolha abaixo como deseja finalizar o pagamento direto no checkout do Asaas.
+          </p>
         </div>
 
         <div className="grid gap-4 lg:grid-cols-[2fr_3fr]">
@@ -320,16 +331,32 @@ export default function TesteRapidocPage() {
 
           <div className="flex flex-col gap-4 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
             <div>
-              <label className="text-sm font-medium text-zinc-700">Forma de pagamento</label>
-              <select
-                className="mt-2 w-full rounded-lg border border-zinc-200 px-3 py-2"
-                value={billingType}
-                onChange={(event) => setBillingType(event.target.value as BillingType)}
+              <h3 className="text-base font-semibold text-zinc-800">Como deseja pagar?</h3>
+              <p className="mt-1 text-sm text-zinc-600">
+                Os botões abaixo abrem o checkout seguro do Asaas já configurado com a forma de pagamento escolhida.
+              </p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <button
+                onClick={() => initiateCheckout('CARD')}
+                disabled={isBusy || !selectedPlan}
+                className="flex h-full flex-col items-start gap-2 rounded-2xl border border-emerald-200 bg-emerald-50/80 px-4 py-3 text-left text-sm font-medium text-emerald-800 shadow-sm transition hover:border-emerald-300 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                <option value="PIX">Pix</option>
-                <option value="BOLETO">Boleto</option>
-                <option value="CREDIT_CARD">Cartão de crédito</option>
-              </select>
+                <span>{checkoutButtonLabel('CARD')}</span>
+                <span className="text-xs font-normal text-emerald-700/80">
+                  Pagamento recorrente direto no cartão de crédito.
+                </span>
+              </button>
+              <button
+                onClick={() => initiateCheckout('PIX_BOLETO')}
+                disabled={isBusy || !selectedPlan}
+                className="flex h-full flex-col items-start gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-left text-sm font-medium text-zinc-700 shadow-sm transition hover:border-zinc-300 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <span>{checkoutButtonLabel('PIX_BOLETO')}</span>
+                <span className="text-xs font-normal text-zinc-500">
+                  Permite escolher Pix ou boleto dentro do checkout do Asaas.
+                </span>
+              </button>
             </div>
             <div>
               <label className="text-sm font-medium text-zinc-700">Valor a pagar</label>
@@ -344,20 +371,11 @@ export default function TesteRapidocPage() {
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            onClick={initiateCheckout}
-            disabled={isSubmitting || !selectedPlan}
-            className="inline-flex items-center justify-center rounded-full bg-emerald-600 px-6 py-2 text-sm font-semibold text-white shadow transition hover:bg-emerald-700 disabled:opacity-60"
-          >
-            {isSubmitting ? 'Preparando checkout…' : 'Pagar com Asaas'}
-          </button>
-          {redirecting && (
-            <span className="text-xs font-semibold uppercase tracking-wide text-emerald-600">
-              Redirecionando para o Asaas…
-            </span>
-          )}
-        </div>
+        {redirectingMode && (
+          <span className="inline-flex rounded-full bg-emerald-50 px-4 py-1 text-xs font-semibold uppercase tracking-wide text-emerald-600">
+            Redirecionando para o Asaas ({redirectingMode === 'CARD' ? 'cartão de crédito' : 'Pix ou boleto'}).
+          </span>
+        )}
 
         {checkout && checkoutUrl && (
           <div className="rounded-2xl border border-blue-200 bg-blue-50/80 p-4 text-sm text-blue-700">
