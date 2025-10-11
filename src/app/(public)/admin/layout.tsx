@@ -95,7 +95,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   }, [pathname]);
 
   return (
-    <AuthGuard>
+    <AuthGuard requireAdmin>
       <div className="grid gap-6 lg:grid-cols-[280px,1fr]">
         <aside className="h-max rounded-3xl border border-white/70 bg-white/90 p-6 shadow-sm">
           <div className="space-y-4">
