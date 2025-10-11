@@ -1,8 +1,7 @@
 'use client';
 import axios from 'axios';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import PixViewer from '@/components/PixViewer';
-import type { BillingType, CheckoutRequestBody, CheckoutResponse, StatusResponse } from '@/types/checkout';
+import type { CheckoutRequestBody, CheckoutResponse, StatusResponse } from '@/types/checkout';
 import { PAYMENT_SUCCESS_STATUSES } from '@/types/checkout';
 import type { PlanDefinition } from '@/types/plans';
 
@@ -75,8 +74,6 @@ export default function TesteRapidocPage() {
   const [resp, setResp] = useState<unknown>(null);
   const [err, setErr] = useState('');
 
-  const [billingType, setBillingType] = useState<BillingType>('PIX');
-
   const [payment, setPayment] = useState<CheckoutResponse | null>(null);
   const [status, setStatus] = useState<string>('');
   const [checking, setChecking] = useState(false);
@@ -127,7 +124,7 @@ export default function TesteRapidocPage() {
     }
   }, [selectedPlan]);
 
-  const createCharge = async () => {
+  const createSubscription = async () => {
     try {
       setErr('');
       setResp(null);
@@ -138,7 +135,7 @@ export default function TesteRapidocPage() {
       setSubscriptionPayments(null);
 
       if (!selectedPlan) {
-        setErr('Selecione um plano antes de gerar a cobrança.');
+        setErr('Selecione um plano antes de criar a assinatura.');
         return;
       }
 
@@ -148,8 +145,13 @@ export default function TesteRapidocPage() {
         return;
       }
 
+      const normalizedPaymentType: BeneficiaryForm['paymentType'] = 'S';
+      if (form.paymentType !== normalizedPaymentType) {
+        setForm((state) => ({ ...state, paymentType: normalizedPaymentType }));
+      }
+
       const payload: CheckoutRequestBody = {
-        billingType,
+        billingType: 'UNDEFINED',
         value: amount,
         description: `Teste Rapidoc - ${selectedPlan.name}`,
         name: form.name,
@@ -161,7 +163,7 @@ export default function TesteRapidocPage() {
         city: form.city,
         state: form.state,
         birthday: form.birthday,
-        paymentType: form.paymentType,
+        paymentType: normalizedPaymentType,
         serviceType: form.serviceType,
         holder: form.holder,
         general: form.general,
@@ -177,7 +179,7 @@ export default function TesteRapidocPage() {
         startPolling();
       }
     } catch (error: unknown) {
-      setErr(getErrorMessage(error, 'Erro ao gerar cobrança'));
+      setErr(getErrorMessage(error, 'Erro ao criar assinatura'));
     }
   };
 
@@ -298,20 +300,6 @@ export default function TesteRapidocPage() {
             </div>
 
             <div className="rounded-lg border bg-white p-3">
-              <label className="mb-1 block text-sm font-medium">paymentType</label>
-              <select
-                className="w-full rounded-md border px-3 py-2"
-                value={form.paymentType}
-                onChange={(e) => onChange('paymentType', e.target.value)}
-              >
-                <option value="S">S</option>
-                <option value="A">A</option>
-              </select>
-              <p className="mt-2 text-xs text-zinc-500">
-                Use S para assinatura recorrente ou A para cobrança avulsa.
-              </p>
-            </div>
-            <div className="rounded-lg border bg-white p-3">
               <p className="text-sm font-medium text-zinc-700">Service Type</p>
               <p className="mt-2 font-mono text-sm uppercase text-zinc-700">
                 {form.serviceType || '—'}
@@ -358,40 +346,26 @@ export default function TesteRapidocPage() {
       </section>
 
       <section className="space-y-3">
-        <h2 className="text-lg font-medium">Cobrança (Asaas)</h2>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="rounded-lg border bg-white p-3">
-            <label className="mb-1 block text-sm font-medium">Método de pagamento</label>
-            <select
-              className="w-full rounded-md border px-3 py-2"
-              value={billingType}
-              onChange={(e) => setBillingType(e.target.value as BillingType)}
-            >
-              <option value="PIX">PIX</option>
-              <option value="BOLETO">Boleto</option>
-            </select>
-          </div>
-
-          <div className="rounded-lg border bg-white p-3">
-            <label className="mb-1 block text-sm font-medium">Valor (R$)</label>
-            <input
-              className="w-full rounded-md border px-3 py-2"
-              value={displayValue}
-              readOnly
-              placeholder="Selecione um plano"
-            />
-            <p className="mt-1 text-xs text-zinc-500">
-              Valor calculado a partir da configuração oficial do plano.
-            </p>
-          </div>
+        <h2 className="text-lg font-medium">Assinatura (Asaas)</h2>
+        <div className="rounded-lg border bg-white p-3">
+          <label className="mb-1 block text-sm font-medium">Valor (R$)</label>
+          <input
+            className="w-full rounded-md border px-3 py-2"
+            value={displayValue}
+            readOnly
+            placeholder="Selecione um plano"
+          />
+          <p className="mt-1 text-xs text-zinc-500">
+            Valor calculado a partir da configuração oficial do plano.
+          </p>
         </div>
 
         <div className="flex flex-wrap gap-2">
           <button
-            onClick={createCharge}
+            onClick={createSubscription}
             className="rounded-md bg-zinc-900 px-4 py-2 text-white"
           >
-            Gerar cobrança
+            Criar assinatura
           </button>
           <button
             onClick={polling ? stopPolling : startPolling}
@@ -430,15 +404,6 @@ export default function TesteRapidocPage() {
           >
             Abrir fatura / checkout
           </a>
-        )}
-
-        {payment?.pix && (
-          <PixViewer
-            encodedImage={payment.pix?.encodedImage}
-            payload={payment.pix?.payload}
-            expirationDate={payment.pix?.expirationDate}
-            status={status}
-          />
         )}
 
         {payment && (

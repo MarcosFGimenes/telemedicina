@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import type { FirebaseFirestore } from 'firebase-admin';
 import { adminAuth, db } from '@/lib/firebaseAdmin';
 import { listAsaasPaymentsByCustomer } from '@/lib/asaasService';
 
@@ -46,25 +47,60 @@ export async function GET(req: NextRequest) {
     }
   }
   const cpf = (userDoc?.cpf as string | undefined) || null;
+  const normalizedCpf = cpf ? cpf.replace(/\D/g, '') : null;
   const asaasCustomerId = (userDoc?.asaasCustomerId as string | undefined) || null;
 
-  // pagamentos por CPF armazenados no Firestore (legado)
-  let payments: Record<string, unknown>[] = [];
-  if (cpf) {
-    const pSnap = await db
-      .collection('payments')
+  const paymentsMap = new Map<string, Record<string, unknown>>();
+  const paymentsCollection = db.collection('payments');
+
+  const appendPayments = (docs: FirebaseFirestore.QueryDocumentSnapshot[] | undefined | null) => {
+    if (!docs?.length) return;
+    docs.forEach((doc) => {
+      const data = doc.data() as Record<string, unknown>;
+      const recordCustomerId = typeof data.customerId === 'string' ? data.customerId : null;
+      const recordCpf = typeof data.cpf === 'string' ? data.cpf.replace(/\D/g, '') : null;
+
+      if (asaasCustomerId && recordCustomerId && recordCustomerId !== asaasCustomerId) {
+        return;
+      }
+
+      if (normalizedCpf && recordCpf && recordCpf !== normalizedCpf) {
+        return;
+      }
+
+      paymentsMap.set(doc.id, { id: doc.id, source: 'firestore', ...data });
+    });
+  };
+
+  // pagamentos vinculados ao customerId (prioritário)
+  if (asaasCustomerId) {
+    const byCustomer = await paymentsCollection
+      .where('customerId', '==', asaasCustomerId)
+      .limit(50)
+      .get()
+      .catch(() => null);
+    appendPayments(byCustomer?.docs);
+  }
+
+  // fallback para CPF quando não há customerId nas faturas legadas
+  if (cpf && paymentsMap.size < 50) {
+    const byCpf = await paymentsCollection
       .where('cpf', '==', cpf)
       .limit(50)
       .get()
       .catch(() => null);
-    payments = pSnap?.docs?.map((d) => ({ id: d.id, source: 'firestore', ...(d.data() as Record<string, unknown>) })) || [];
+    appendPayments(byCpf?.docs);
   }
 
   // pagamentos sincronizados direto do Asaas
   if (asaasCustomerId) {
     const asaasPayments = await listAsaasPaymentsByCustomer(asaasCustomerId).catch(() => []);
-    payments = [
-      ...asaasPayments.map((payment) => ({
+    asaasPayments.forEach((payment) => {
+      if (payment.customer && payment.customer !== asaasCustomerId) {
+        return;
+      }
+
+      paymentsMap.set(payment.id, {
         id: payment.id,
         source: 'asaas',
         status: payment.status,
@@ -81,10 +117,11 @@ export async function GET(req: NextRequest) {
         billingType: payment.billingType,
         invoiceUrl: payment.invoiceUrl || payment.bankSlipUrl || payment.transactionReceiptUrl,
         raw: payment,
-      })),
-      ...payments,
-    ];
+      });
+    });
   }
+
+  const payments = Array.from(paymentsMap.values());
 
   return NextResponse.json({ ok: true, user: userDoc, payments });
 }
