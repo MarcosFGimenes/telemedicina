@@ -277,9 +277,13 @@ export async function reactivateBeneficiary(uuid: string) {
   return data;
 }
 
-export async function deactivateBeneficiary(uuid: string) {
+export async function rapidocDeleteBeneficiary(uuid: string) {
   const { data } = await rapidoc.delete(`/beneficiaries/${uuid}`);
   return data;
+}
+
+export async function deactivateBeneficiary(uuid: string) {
+  return rapidocDeleteBeneficiary(uuid);
 }
 
 
