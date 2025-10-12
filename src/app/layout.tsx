@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import Nav from "@/components/Nav";
 import AuthProvider from "@/components/auth/AuthProvider";
 import Link from "next/link";
 
@@ -20,7 +19,7 @@ export default function RootLayout({
       <body className="min-h-screen bg-zinc-50 font-sans text-zinc-900 antialiased">
         <AuthProvider>
           <div className="relative min-h-screen bg-[radial-gradient(1600px_700px_at_20%_-10%,rgba(16,185,129,0.12),transparent),radial-gradient(1200px_600px_at_120%_-30%,rgba(16,185,129,0.08),transparent)]">
-            <Nav />
+            {/* Header removido globalmente */}
             <main className="relative mx-auto w-full max-w-6xl px-4 pb-20 pt-10 sm:px-6 lg:px-8">{children}</main>
             <footer className="border-t border-white/60 bg-white/80 py-10 text-sm text-zinc-600">
               <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 sm:flex-row sm:items-center sm:justify-between">
