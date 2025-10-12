@@ -18,6 +18,12 @@ import { isValidCpf } from '@/utils/format';
 const paidStatuses = new Set(['CONFIRMED', 'RECEIVED', 'RECEIVED_IN_CASH', 'RECEIVED_PIX']);
 const pendingStatuses = new Set(['PENDING', 'OVERDUE', 'AWAITING_RISK_ANALYSIS', 'AWAITING_CHARGEBACK_REVERSAL']);
 
+type DependentSummary = {
+  uuid: string;
+  name?: string | null;
+  cpf?: string | null;
+};
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null;
 
@@ -51,6 +57,13 @@ const toDate = (value: unknown): Date | null => {
     }
   }
   return null;
+};
+
+const asRecordArray = (value: unknown): Record<string, unknown>[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter(isRecord);
 };
 
 const hasAdminClaim = (decoded: DecodedIdToken & Record<string, unknown>) =>
@@ -133,6 +146,111 @@ const lastBusinessDay = (reference: Date) => {
 };
 
 const monthKey = (reference: Date) => `${reference.getFullYear()}-${String(reference.getMonth() + 1).padStart(2, '0')}`;
+
+const dependentUuidKeys = [
+  'uuid',
+  'id',
+  'beneficiaryUuid',
+  'beneficiaryId',
+  'dependentUuid',
+  'dependentId',
+  'codigo',
+  'code',
+];
+
+const dependentNameKeys = ['name', 'fullName', 'beneficiaryName', 'dependentName', 'nome'];
+
+const dependentCpfKeys = ['cpf', 'document', 'documentNumber', 'holder', 'holderCpf'];
+
+const trimString = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
+
+const pickStringFrom = (record: Record<string, unknown>, keys: string[]) => {
+  for (const key of keys) {
+    const value = trimString(record[key]);
+    if (value) {
+      return value;
+    }
+  }
+  return '';
+};
+
+const unwrapNestedRecord = (record: Record<string, unknown>) => {
+  for (const key of ['beneficiary', 'beneficiario', 'data', 'payload', 'result', 'item']) {
+    const nested = record[key];
+    if (isRecord(nested)) {
+      return nested;
+    }
+  }
+  return record;
+};
+
+const parseDependentRecord = (record: Record<string, unknown>): DependentSummary | null => {
+  const flattened = unwrapNestedRecord(record);
+  const uuid =
+    pickStringFrom(flattened, dependentUuidKeys) ||
+    pickStringFrom(record, dependentUuidKeys);
+  if (!uuid) {
+    return null;
+  }
+  const name = pickStringFrom(flattened, dependentNameKeys) || pickStringFrom(record, dependentNameKeys) || null;
+  const cpfRaw = pickStringFrom(flattened, dependentCpfKeys) || pickStringFrom(record, dependentCpfKeys) || '';
+  const cpfDigits = cpfRaw.replace(/\D/g, '') || null;
+  return {
+    uuid,
+    name,
+    cpf: cpfDigits,
+  };
+};
+
+const normalizeDependentList = (value: unknown): DependentSummary[] => {
+  const list = asRecordArray(value);
+  const parsed = list
+    .map((item) => parseDependentRecord(item))
+    .filter((item): item is DependentSummary => Boolean(item?.uuid));
+  return parsed;
+};
+
+const mergeDependents = (lists: DependentSummary[][]): DependentSummary[] => {
+  const merged = new Map<string, DependentSummary>();
+  for (const list of lists) {
+    for (const entry of list) {
+      if (!entry.uuid) {
+        continue;
+      }
+      const existing = merged.get(entry.uuid);
+      if (!existing) {
+        merged.set(entry.uuid, entry);
+        continue;
+      }
+      const name = existing.name || entry.name || null;
+      const cpf = existing.cpf || entry.cpf || null;
+      if (name !== existing.name || cpf !== existing.cpf) {
+        merged.set(entry.uuid, { uuid: entry.uuid, name, cpf });
+      }
+    }
+  }
+  return Array.from(merged.values());
+};
+
+const fetchOwnerDependents = async (ownerUid: string | null): Promise<DependentSummary[]> => {
+  if (!ownerUid) {
+    return [];
+  }
+  const snapshot = await db.collection('dependents').where('ownerUid', '==', ownerUid).get();
+  const items: DependentSummary[] = [];
+  for (const doc of snapshot.docs) {
+    const data = doc.data() as Record<string, unknown>;
+    const uuid = trimString(data?.uuid);
+    if (!uuid) {
+      continue;
+    }
+    const name = trimString(data?.name) || null;
+    const cpfRaw = trimString(data?.cpf);
+    const cpf = cpfRaw ? cpfRaw.replace(/\D/g, '') : null;
+    items.push({ uuid, name, cpf });
+  }
+  return items;
+};
 
 export async function POST(req: NextRequest) {
   let decoded: DecodedIdToken & Record<string, unknown>;
@@ -239,6 +357,29 @@ export async function POST(req: NextRequest) {
 
   const storedBeneficiaryUuid =
     typeof userData.beneficiaryUuid === 'string' ? userData.beneficiaryUuid.trim() : '';
+
+  const rapidocDependents = normalizeDependentList(normalizedBeneficiary.dependents);
+  const storedRapidocDependents = normalizeDependentList(userData['rapidocDependents']);
+  const storedDependents = normalizeDependentList(userData['dependents']);
+  const linkedDependentUuids: DependentSummary[] = Array.isArray(userData['dependentUuids'])
+    ? (userData['dependentUuids'] as unknown[])
+        .map((value) => trimString(value))
+        .filter(Boolean)
+        .map((uuid) => ({ uuid }))
+    : [];
+  let ownerDependents: DependentSummary[] = [];
+  try {
+    ownerDependents = await fetchOwnerDependents(ownerUid);
+  } catch (error) {
+    console.error('[plano/cancelar][dependents][firestore]', error);
+  }
+  const allDependents = mergeDependents([
+    rapidocDependents,
+    storedRapidocDependents,
+    storedDependents,
+    linkedDependentUuids,
+    ownerDependents,
+  ]);
 
   const cancellationRaw = isRecord(userData.planCancellation)
     ? (userData.planCancellation as Record<string, unknown>)
@@ -364,6 +505,14 @@ export async function POST(req: NextRequest) {
   const requestedAt = now;
   const referenceKey = monthKey(now);
 
+  const dependentActions = allDependents.map((dependent) => ({
+    uuid: dependent.uuid,
+    action: 'DELETE',
+    endpoint: `/beneficiaries/${dependent.uuid}`,
+    name: dependent.name ?? null,
+    cpf: dependent.cpf ?? null,
+  }));
+
   const tasks = db.collection('planCancellationTasks');
   const taskPayload: Record<string, unknown> = {
     userId,
@@ -382,6 +531,11 @@ export async function POST(req: NextRequest) {
       endpoint: `/beneficiaries/${beneficiaryUuid}`,
     },
   };
+
+  if (dependentActions.length) {
+    taskPayload.rapidocDependents = dependentActions;
+    taskPayload.dependentUuids = dependentActions.map((dependent) => dependent.uuid);
+  }
 
   let taskId = typeof cancellationRaw?.taskId === 'string' ? cancellationRaw.taskId.trim() : '';
 
@@ -408,6 +562,14 @@ export async function POST(req: NextRequest) {
       cpf: resolvedCpf,
     },
   };
+
+  if (dependentActions.length) {
+    userUpdates.planCancellation = {
+      ...(userUpdates.planCancellation as Record<string, unknown>),
+      dependents: dependentActions,
+      dependentUuids: dependentActions.map((dependent) => dependent.uuid),
+    };
+  }
 
   if (!storedBeneficiaryUuid && beneficiaryUuid) {
     userUpdates.beneficiaryUuid = beneficiaryUuid;
