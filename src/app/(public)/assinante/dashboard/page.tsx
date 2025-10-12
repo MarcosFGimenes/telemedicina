@@ -59,16 +59,6 @@ const parseDateValue = (value?: string) => {
   return date;
 };
 
-const formatDate = (value?: string) => {
-  const date = parseDateValue(value);
-  if (!date) return '—';
-  return new Intl.DateTimeFormat('pt-BR', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  }).format(date);
-};
-
 const formatDateTime = (value?: string) => {
   const date = parseDateValue(value);
   if (!date) return '—';
@@ -209,39 +199,11 @@ export default function AssinanteDashboard() {
       .filter(Boolean) as string[];
   }, [beneficiary?.specialties]);
 
-  const nextPayment = useMemo<Payment | null>(() => {
-    const payments = data.me?.payments ?? [];
-    if (!payments.length) return null;
-
-    const withParsed = payments.map((payment) => {
-      const due = parseDateValue(payment.dueDate);
-      const processed = parseDateValue(payment.processedAt);
-      const created = parseDateValue(payment.createdAt);
-      const reference = processed || due || created;
-      return { payment, due, reference };
-    });
-
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
-
-    const upcoming = withParsed
-      .filter((item) => item.due && item.due.getTime() >= startOfToday.getTime())
-      .sort((a, b) => (a.due!.getTime() - b.due!.getTime()));
-    if (upcoming[0]) return upcoming[0].payment;
-
-    const sorted = withParsed
-      .filter((item) => item.reference)
-      .sort((a, b) => b.reference!.getTime() - a.reference!.getTime());
-    if (sorted[0]) return sorted[0].payment;
-
-    return payments[0] ?? null;
-  }, [data.me?.payments]);
-
   const dependents = data.dependents;
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid gap-4 lg:grid-cols-2">
         <div className="rounded-3xl border border-white/70 bg-white/90 p-5 shadow-sm">
           <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">Status do plano</p>
           <h2 className="mt-2 text-2xl font-semibold text-zinc-900">{planName}</h2>
@@ -274,41 +236,6 @@ export default function AssinanteDashboard() {
             </div>
           ) : (
             <p className="mt-2 text-xs text-zinc-500">Nenhuma especialidade foi retornada para este beneficiário.</p>
-          )}
-        </div>
-
-        <div className="rounded-3xl border border-white/70 bg-white/90 p-5 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">Próxima fatura</p>
-          {nextPayment ? (
-            <div className="mt-3 space-y-2 text-sm text-zinc-600">
-              <p>
-                <span className="font-medium text-zinc-800">{formatCurrency(nextPayment.value)}</span>
-                <span className="ml-2 text-xs text-zinc-400">ID {nextPayment.id}</span>
-              </p>
-              <p>
-                Vencimento:{' '}
-                <span className="font-medium text-emerald-700">
-                  {nextPayment.dueDate
-                    ? formatDate(nextPayment.dueDate)
-                    : formatDateTime(nextPayment.processedAt || nextPayment.createdAt)}
-                </span>
-              </p>
-              <p className="text-xs uppercase tracking-wide text-emerald-600">
-                {String(nextPayment.status || 'PENDENTE').toUpperCase()}
-              </p>
-              {nextPayment.invoiceUrl && (
-                <Link
-                  href={nextPayment.invoiceUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center text-xs font-semibold text-emerald-700 underline-offset-2 hover:underline"
-                >
-                  Abrir fatura
-                </Link>
-              )}
-            </div>
-          ) : (
-            <p className="mt-3 text-sm text-zinc-500">Nenhuma cobrança localizada até o momento.</p>
           )}
         </div>
 

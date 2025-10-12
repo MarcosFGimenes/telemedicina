@@ -138,8 +138,8 @@ export default function AssinanteLayout({ children }: { children: React.ReactNod
       <div className="space-y-6">
         <header className="rounded-3xl border border-white/70 bg-white/90 p-4 shadow-sm sm:p-6">
           <div className="flex items-center justify-between gap-4">
-            <Link href="/assinante/dashboard" className="flex items-center gap-3">
-              <Image src="/logo.png" alt="Rapidoc" width={140} height={40} className="h-10 w-auto" priority />
+            <Link href="/assinante/dashboard" className="flex items-center gap-4">
+              <Image src="/logo.png" alt="Rapidoc" width={180} height={60} className="h-12 w-auto" priority />
             </Link>
 
             <nav className="hidden items-center gap-1 lg:flex">
@@ -233,27 +233,6 @@ export default function AssinanteLayout({ children }: { children: React.ReactNod
                   </p>
                 )}
               </div>
-
-              <nav className="space-y-3">
-                {navLinks.map((link) => {
-                  const isActive = pathname === link.href;
-                  return (
-                    <Link
-                      key={link.href}
-                      href={link.href}
-                      className={clsx(
-                        'block rounded-2xl border px-4 py-3 transition hover:border-emerald-200 hover:bg-emerald-50',
-                        isActive
-                          ? 'border-emerald-300 bg-emerald-50/80 shadow-sm'
-                          : 'border-white/60 bg-white/80',
-                      )}
-                    >
-                      <span className="block text-sm font-semibold text-emerald-700">{link.label}</span>
-                      <span className="text-xs text-zinc-500">{link.helper}</span>
-                    </Link>
-                  );
-                })}
-              </nav>
 
               <div className="rounded-2xl border border-emerald-200 bg-emerald-50/80 p-4 text-xs text-emerald-700">
                 <p className="font-semibold">Precisa de ajuda?</p>
