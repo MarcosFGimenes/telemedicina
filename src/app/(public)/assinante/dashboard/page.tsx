@@ -48,10 +48,30 @@ const formatCurrency = (value?: number) => {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
 };
 
+const parseDateValue = (value?: string) => {
+  if (!value) return null;
+  const raw = value.trim();
+  if (!raw) return null;
+  const hasTime = /\dT\d|\d:\d/.test(raw);
+  const isoLike = hasTime ? raw : `${raw}T00:00:00`;
+  const date = new Date(isoLike);
+  if (Number.isNaN(date.getTime())) return null;
+  return date;
+};
+
+const formatDate = (value?: string) => {
+  const date = parseDateValue(value);
+  if (!date) return '—';
+  return new Intl.DateTimeFormat('pt-BR', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  }).format(date);
+};
+
 const formatDateTime = (value?: string) => {
-  if (!value) return '—';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '—';
+  const date = parseDateValue(value);
+  if (!date) return '—';
   return new Intl.DateTimeFormat('pt-BR', {
     day: '2-digit',
     month: 'short',
@@ -192,11 +212,29 @@ export default function AssinanteDashboard() {
   const nextPayment = useMemo<Payment | null>(() => {
     const payments = data.me?.payments ?? [];
     if (!payments.length) return null;
-    return [...payments].sort((a, b) => {
-      const aDate = new Date(a.dueDate || a.processedAt || a.createdAt || 0).getTime();
-      const bDate = new Date(b.dueDate || b.processedAt || b.createdAt || 0).getTime();
-      return aDate - bDate;
-    })[0];
+
+    const withParsed = payments.map((payment) => {
+      const due = parseDateValue(payment.dueDate);
+      const processed = parseDateValue(payment.processedAt);
+      const created = parseDateValue(payment.createdAt);
+      const reference = processed || due || created;
+      return { payment, due, reference };
+    });
+
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const upcoming = withParsed
+      .filter((item) => item.due && item.due.getTime() >= startOfToday.getTime())
+      .sort((a, b) => (a.due!.getTime() - b.due!.getTime()));
+    if (upcoming[0]) return upcoming[0].payment;
+
+    const sorted = withParsed
+      .filter((item) => item.reference)
+      .sort((a, b) => b.reference!.getTime() - a.reference!.getTime());
+    if (sorted[0]) return sorted[0].payment;
+
+    return payments[0] ?? null;
   }, [data.me?.payments]);
 
   const dependents = data.dependents;
@@ -249,7 +287,11 @@ export default function AssinanteDashboard() {
               </p>
               <p>
                 Vencimento:{' '}
-                <span className="font-medium text-emerald-700">{formatDateTime(nextPayment.dueDate || nextPayment.processedAt)}</span>
+                <span className="font-medium text-emerald-700">
+                  {nextPayment.dueDate
+                    ? formatDate(nextPayment.dueDate)
+                    : formatDateTime(nextPayment.processedAt || nextPayment.createdAt)}
+                </span>
               </p>
               <p className="text-xs uppercase tracking-wide text-emerald-600">
                 {String(nextPayment.status || 'PENDENTE').toUpperCase()}
