@@ -126,7 +126,17 @@ export default function AssinanteDashboard() {
       } catch (err: any) {
         if (!active) return;
         setBeneficiary(null);
-        setBeneficiaryError(err?.message || 'Não foi possível consultar o plano atual.');
+        const message = err?.message || 'Não foi possível consultar o plano atual.';
+        const normalized = message
+          .toString()
+          .normalize('NFD')
+          .replace(/\p{Diacritic}/gu, '')
+          .toLowerCase();
+        if (normalized.includes('beneficiario nao encontrado')) {
+          setBeneficiaryError('');
+        } else {
+          setBeneficiaryError(message);
+        }
       } finally {
         if (active) setBeneficiaryLoading(false);
       }
