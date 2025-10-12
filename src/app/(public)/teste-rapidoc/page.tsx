@@ -2,6 +2,7 @@
 import axios from 'axios';
 import clsx from 'clsx';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import PayloadPreview from '@/components/ui/PayloadPreview';
 import type { CheckoutRequestBody, CheckoutResponse, StatusResponse } from '@/types/checkout';
 import { PAYMENT_SUCCESS_STATUSES } from '@/types/checkout';
 import type { PlanDefinition } from '@/types/plans';
@@ -878,30 +879,30 @@ export default function TesteRapidocPage() {
           )}
 
           {subscriptionDetails && (
-            <div className="space-y-2">
-              <h3 className="text-sm font-semibold text-zinc-700">Detalhes da assinatura</h3>
-              <pre className="whitespace-pre-wrap rounded-lg border bg-white p-3 text-xs">
-                {JSON.stringify(subscriptionDetails, null, 2)}
-              </pre>
-            </div>
+            <PayloadPreview
+              data={subscriptionDetails}
+              title="Detalhes da assinatura"
+              description="Conteúdo completo retornado pela Rapidoc com a assinatura vigente."
+              className="mt-6"
+            />
           )}
 
           {subscriptionPayments && (
-            <div className="space-y-2">
-              <h3 className="text-sm font-semibold text-zinc-700">Cobranças programadas</h3>
-              <pre className="whitespace-pre-wrap rounded-lg border bg-white p-3 text-xs">
-                {JSON.stringify(subscriptionPayments, null, 2)}
-              </pre>
-            </div>
+            <PayloadPreview
+              data={subscriptionPayments}
+              title="Cobranças programadas"
+              description="Visualize as cobranças que serão sincronizadas com o Asaas."
+              className="mt-6"
+            />
           )}
 
           {resp && (
-            <div className="space-y-2">
-              <h3 className="text-sm font-semibold text-zinc-700">Resposta Rapidoc</h3>
-              <pre className="whitespace-pre-wrap rounded-lg border bg-white p-3 text-xs">
-                {JSON.stringify(resp, null, 2)}
-              </pre>
-            </div>
+            <PayloadPreview
+              data={resp}
+              title="Resposta Rapidoc"
+              description="Payload final do fluxo de testes para conferência do suporte."
+              className="mt-6"
+            />
           )}
         </section>
       )}

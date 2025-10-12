@@ -3,6 +3,7 @@
 import axios from 'axios';
 import { useEffect, useMemo, useState } from 'react';
 import { useAuthContext } from '@/components/auth/AuthProvider';
+import PayloadPreview from '@/components/ui/PayloadPreview';
 
 type Specialty = { id?: string; uuid?: string; name?: string; [key: string]: unknown };
 type AppointmentResp = { uuid?: string; id?: string; [key: string]: unknown };
@@ -233,6 +234,18 @@ export default function AssinanteAgendamentosPage() {
   const [beneficiarySnapshot, setBeneficiarySnapshot] = useState<Record<string, unknown> | null>(null);
   const [loadingBeneficiarySnapshot, setLoadingBeneficiarySnapshot] = useState(false);
   const [beneficiarySnapshotError, setBeneficiarySnapshotError] = useState('');
+  const resultMessage = useMemo(() => {
+    if (!result) return '';
+    if (typeof result === 'string') return result;
+    const record = asRecord(result);
+    if (!record) return '';
+    const keys = ['message', 'status', 'detail', 'error'];
+    for (const key of keys) {
+      const value = stringFrom(record[key]);
+      if (value) return value;
+    }
+    return '';
+  }, [result]);
 
   useEffect(() => {
     const loadSpecs = async () => {
@@ -681,7 +694,7 @@ export default function AssinanteAgendamentosPage() {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-3xl border border-white/70 bg-white/90 p-6 shadow-sm">
+      <section className="rounded-3xl border border-white/70 bg-white/90 p-5 shadow-sm sm:p-6">
         <h2 className="text-lg font-semibold text-zinc-900">Monte seu atendimento</h2>
         <p className="mt-1 text-sm text-zinc-600">
           Escolha quem será atendido, ajuste o período desejado e confirme a especialidade. A disponibilidade vem diretamente
@@ -887,7 +900,7 @@ export default function AssinanteAgendamentosPage() {
         </div>
       </section>
 
-      <section className="rounded-3xl border border-white/70 bg-white/90 p-6 shadow-sm">
+      <section className="rounded-3xl border border-white/70 bg-white/90 p-5 shadow-sm sm:p-6">
         <h2 className="text-lg font-semibold text-zinc-900">Confirmação do agendamento</h2>
         <p className="mt-1 text-sm text-zinc-600">
           Revise as informações e confirme para registrar o atendimento diretamente na Rapidoc. Você também pode solicitar um
@@ -947,29 +960,34 @@ export default function AssinanteAgendamentosPage() {
           </div>
         )}
 
+        {resultMessage && (
+          <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50/80 p-4 text-sm text-emerald-700">
+            {resultMessage}
+          </div>
+        )}
         {result && (
-          <details className="mt-4 rounded-2xl border border-white/70 bg-white/80 p-4 text-xs text-zinc-600">
-            <summary className="cursor-pointer text-sm font-semibold text-emerald-700">Detalhes técnicos do retorno</summary>
-            <pre className="mt-3 whitespace-pre-wrap break-all text-[11px] leading-relaxed">
-              {JSON.stringify(result, null, 2)}
-            </pre>
-            {selectedSlotSummary?.raw && (
-              <div className="mt-3 rounded-lg border border-emerald-100 bg-emerald-50/80 p-2">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Slot selecionado</p>
-                <pre className="mt-1 whitespace-pre-wrap break-all text-[11px] leading-relaxed">
-                  {JSON.stringify(selectedSlotSummary.raw, null, 2)}
-                </pre>
-              </div>
-            )}
-            {selectedReferral?.raw && (
-              <div className="mt-3 rounded-lg border border-emerald-100 bg-emerald-50/80 p-2">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Encaminhamento utilizado</p>
-                <pre className="mt-1 whitespace-pre-wrap break-all text-[11px] leading-relaxed">
-                  {JSON.stringify(selectedReferral.raw, null, 2)}
-                </pre>
-              </div>
-            )}
-          </details>
+          <PayloadPreview
+            data={result}
+            title="Retorno da Rapidoc"
+            description="Payload completo recebido após a criação do agendamento."
+            className="mt-4"
+          />
+        )}
+        {selectedSlotSummary?.raw && (
+          <PayloadPreview
+            data={selectedSlotSummary.raw}
+            title="Horário selecionado"
+            description="Detalhes do slot enviado para confirmação do atendimento."
+            className="mt-4"
+          />
+        )}
+        {selectedReferral?.raw && (
+          <PayloadPreview
+            data={selectedReferral.raw}
+            title="Encaminhamento utilizado"
+            description="Informações recebidas da Rapidoc para validar o encaminhamento."
+            className="mt-4"
+          />
         )}
       </section>
     </div>

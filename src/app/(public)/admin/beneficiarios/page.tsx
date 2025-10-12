@@ -1,7 +1,8 @@
 'use client';
 
 import axios from 'axios';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import PayloadPreview from '@/components/ui/PayloadPreview';
 
 type BeneficiaryData = {
   uuid?: string;
@@ -40,6 +41,39 @@ export default function AdminBeneficiariosPage() {
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(false);
   const [beneficiaryId, setBeneficiaryId] = useState('');
+  const firstResult = useMemo<BeneficiaryData | null>(() => {
+    if (!data) return null;
+    if (Array.isArray(data)) {
+      for (const item of data) {
+        if (item && typeof item === 'object') {
+          return item as BeneficiaryData;
+        }
+      }
+    }
+    if (typeof data === 'object') {
+      return data as BeneficiaryData;
+    }
+    return null;
+  }, [data]);
+
+  const statusLabel = useMemo(() => {
+    if (!firstResult) return '';
+    const status = firstResult.status || (firstResult as Record<string, unknown>)?.['situation'];
+    return status ? String(status).toUpperCase() : '';
+  }, [firstResult]);
+
+  const nameLabel = useMemo(() => {
+    if (!firstResult) return '';
+    const direct = (firstResult as Record<string, unknown>)?.['name'];
+    if (typeof direct === 'string' && direct.trim().length > 0) {
+      return direct;
+    }
+    const nested = (firstResult as Record<string, unknown>)?.['beneficiary'];
+    if (nested && typeof nested === 'object' && typeof (nested as Record<string, unknown>)['name'] === 'string') {
+      return String((nested as Record<string, unknown>)['name']);
+    }
+    return '';
+  }, [firstResult]);
 
   const buscar = async () => {
     if (!cpf) {
@@ -108,7 +142,7 @@ export default function AdminBeneficiariosPage() {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-3xl border border-white/70 bg-white/90 p-6 shadow-sm">
+      <section className="rounded-3xl border border-white/70 bg-white/90 p-5 shadow-sm sm:p-6">
         <h2 className="text-lg font-semibold text-zinc-900">Consulta de beneficiários</h2>
         <p className="mt-1 text-sm text-zinc-600">Busque titulares por CPF, visualize payloads e altere status rapidamente.</p>
 
@@ -150,6 +184,16 @@ export default function AdminBeneficiariosPage() {
             <span className="rounded-full border border-emerald-200 bg-emerald-50/80 px-3 py-1 font-semibold text-emerald-700">
               Beneficiário: {beneficiaryId}
             </span>
+            {nameLabel && (
+              <span className="rounded-full border border-white/70 bg-white/80 px-3 py-1 font-semibold text-emerald-700">
+                {nameLabel}
+              </span>
+            )}
+            {statusLabel && (
+              <span className="rounded-full border border-emerald-200 bg-emerald-50/80 px-3 py-1 font-semibold text-emerald-700">
+                Status: {statusLabel}
+              </span>
+            )}
             <button
               onClick={inativar}
               className="rounded-full border border-red-200 px-3 py-1 font-semibold text-red-600 transition hover:bg-red-50"
@@ -169,11 +213,18 @@ export default function AdminBeneficiariosPage() {
       </section>
 
       {data && (
-        <section className="rounded-3xl border border-white/70 bg-white/90 p-6 shadow-sm">
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-emerald-600">Retorno da Rapidoc</h3>
-          <pre className="mt-3 whitespace-pre-wrap break-all rounded-2xl border border-white/60 bg-white/80 p-4 text-[11px] leading-relaxed text-zinc-600">
-            {JSON.stringify(data, null, 2)}
-          </pre>
+        <section className="space-y-4 rounded-3xl border border-white/70 bg-white/90 p-5 shadow-sm sm:p-6">
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50/80 p-4 text-sm text-emerald-700">
+            <p className="font-semibold">Resumo do beneficiário</p>
+            <p className="mt-1 text-xs text-emerald-700">
+              Utilize as ações acima para ativar ou inativar o cadastro diretamente na Rapidoc.
+            </p>
+          </div>
+          <PayloadPreview
+            data={data}
+            title="Retorno da Rapidoc"
+            description="Visualize o payload completo retornado pela API para auditoria."
+          />
         </section>
       )}
 

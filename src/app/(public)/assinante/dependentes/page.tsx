@@ -1,8 +1,9 @@
 'use client';
 
 import axios from 'axios';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useAuthContext } from '@/components/auth/AuthProvider';
+import PayloadPreview from '@/components/ui/PayloadPreview';
 
 type BeneficiaryForm = {
   name: string;
@@ -41,6 +42,18 @@ export default function AssinanteDependentesPage() {
   const [loading, setLoading] = useState(false);
   const [dependents, setDependents] = useState<Dependent[]>([]);
   const [limit, setLimit] = useState<number | null>(null);
+  const responseMessage = useMemo(() => {
+    if (!resp) return '';
+    if (typeof resp === 'string') return resp;
+    if (typeof resp === 'object') {
+      const record = resp as Record<string, unknown>;
+      const message = record['message'] || record['status'] || record['detail'];
+      if (typeof message === 'string' && message.trim().length > 0) {
+        return message;
+      }
+    }
+    return '';
+  }, [resp]);
 
   useEffect(() => {
     const load = async () => {
@@ -108,7 +121,7 @@ export default function AssinanteDependentesPage() {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-3xl border border-white/70 bg-white/90 p-6 shadow-sm">
+      <section className="rounded-3xl border border-white/70 bg-white/90 p-5 shadow-sm sm:p-6">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-lg font-semibold text-zinc-900">Dependentes vinculados</h2>
@@ -139,7 +152,7 @@ export default function AssinanteDependentesPage() {
         )}
       </section>
 
-      <section className="rounded-3xl border border-white/70 bg-white/90 p-6 shadow-sm">
+      <section className="rounded-3xl border border-white/70 bg-white/90 p-5 shadow-sm sm:p-6">
         <h2 className="text-lg font-semibold text-zinc-900">Cadastrar novo dependente</h2>
         <p className="mt-1 text-sm text-zinc-600">
           Os dados abaixo são enviados diretamente para a Rapidoc e vinculados ao seu contrato após confirmação.
@@ -172,11 +185,18 @@ export default function AssinanteDependentesPage() {
         </div>
 
         {err && <p className="mt-3 text-sm text-red-600">{String(err)}</p>}
+        {responseMessage && (
+          <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50/80 p-4 text-sm text-emerald-700">
+            {responseMessage}
+          </div>
+        )}
         {resp && (
-          <details className="mt-4 rounded-2xl border border-white/70 bg-white/80 p-4 text-xs text-zinc-600">
-            <summary className="cursor-pointer text-sm font-semibold text-emerald-700">Resposta da Rapidoc</summary>
-            <pre className="mt-3 whitespace-pre-wrap break-all text-[11px] leading-relaxed">{JSON.stringify(resp, null, 2)}</pre>
-          </details>
+          <PayloadPreview
+            data={resp}
+            title="Retorno da Rapidoc"
+            description="Detalhes completos da criação do beneficiário."
+            className="mt-4"
+          />
         )}
 
         <div className="mt-4 flex flex-wrap gap-3">
