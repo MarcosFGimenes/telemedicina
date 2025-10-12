@@ -48,10 +48,20 @@ const formatCurrency = (value?: number) => {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
 };
 
+const parseDateValue = (value?: string) => {
+  if (!value) return null;
+  const raw = value.trim();
+  if (!raw) return null;
+  const hasTime = /\dT\d|\d:\d/.test(raw);
+  const isoLike = hasTime ? raw : `${raw}T00:00:00`;
+  const date = new Date(isoLike);
+  if (Number.isNaN(date.getTime())) return null;
+  return date;
+};
+
 const formatDateTime = (value?: string) => {
-  if (!value) return '—';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '—';
+  const date = parseDateValue(value);
+  if (!date) return '—';
   return new Intl.DateTimeFormat('pt-BR', {
     day: '2-digit',
     month: 'short',
@@ -189,21 +199,11 @@ export default function AssinanteDashboard() {
       .filter(Boolean) as string[];
   }, [beneficiary?.specialties]);
 
-  const nextPayment = useMemo<Payment | null>(() => {
-    const payments = data.me?.payments ?? [];
-    if (!payments.length) return null;
-    return [...payments].sort((a, b) => {
-      const aDate = new Date(a.dueDate || a.processedAt || a.createdAt || 0).getTime();
-      const bDate = new Date(b.dueDate || b.processedAt || b.createdAt || 0).getTime();
-      return aDate - bDate;
-    })[0];
-  }, [data.me?.payments]);
-
   const dependents = data.dependents;
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid gap-4 lg:grid-cols-2">
         <div className="rounded-3xl border border-white/70 bg-white/90 p-5 shadow-sm">
           <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">Status do plano</p>
           <h2 className="mt-2 text-2xl font-semibold text-zinc-900">{planName}</h2>
@@ -236,37 +236,6 @@ export default function AssinanteDashboard() {
             </div>
           ) : (
             <p className="mt-2 text-xs text-zinc-500">Nenhuma especialidade foi retornada para este beneficiário.</p>
-          )}
-        </div>
-
-        <div className="rounded-3xl border border-white/70 bg-white/90 p-5 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">Próxima fatura</p>
-          {nextPayment ? (
-            <div className="mt-3 space-y-2 text-sm text-zinc-600">
-              <p>
-                <span className="font-medium text-zinc-800">{formatCurrency(nextPayment.value)}</span>
-                <span className="ml-2 text-xs text-zinc-400">ID {nextPayment.id}</span>
-              </p>
-              <p>
-                Vencimento:{' '}
-                <span className="font-medium text-emerald-700">{formatDateTime(nextPayment.dueDate || nextPayment.processedAt)}</span>
-              </p>
-              <p className="text-xs uppercase tracking-wide text-emerald-600">
-                {String(nextPayment.status || 'PENDENTE').toUpperCase()}
-              </p>
-              {nextPayment.invoiceUrl && (
-                <Link
-                  href={nextPayment.invoiceUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center text-xs font-semibold text-emerald-700 underline-offset-2 hover:underline"
-                >
-                  Abrir fatura
-                </Link>
-              )}
-            </div>
-          ) : (
-            <p className="mt-3 text-sm text-zinc-500">Nenhuma cobrança localizada até o momento.</p>
           )}
         </div>
 
