@@ -86,6 +86,10 @@ const metaByRoute: Record<string, SubscriberMeta> = {
     title: 'Meu perfil',
     description: 'Atualize dados de contato para garantir notificacoes rapidas.',
   },
+  '/assinante/perfil/cancelar': {
+    title: 'Cancelar plano',
+    description: 'Solicite o cancelamento do plano e acompanhe a data de efetivacao.',
+  },
 };
 
 type SubscriberSnapshot = {
