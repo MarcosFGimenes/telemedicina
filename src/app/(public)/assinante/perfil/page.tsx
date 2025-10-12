@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useAuthContext } from '@/components/auth/AuthProvider';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { PlanDefinition } from '@/types/plans';
@@ -247,33 +248,6 @@ export default function PerfilPage() {
     }
   };
 
-  const toggleBeneficiary = async (mode: 'inactive' | 'reactivate') => {
-    if (!beneficiaryUuid) {
-      setPlanError('Beneficiário não localizado.');
-      return;
-    }
-
-    try {
-      setPlanSubmitting(true);
-      setPlanError('');
-      setPlanFeedback('');
-      const endpoint =
-        mode === 'inactive'
-          ? `/api/rapidoc/beneficiaries/${beneficiaryUuid}/inactive`
-          : `/api/rapidoc/beneficiaries/${beneficiaryUuid}/reactivate`;
-      const method = mode === 'inactive' ? 'DELETE' : 'PUT';
-      const res = await fetch(endpoint, { method });
-      const data = await res.json().catch(() => null);
-      if (!res.ok) throw new Error((data as any)?.message || (data as any)?.error || 'Operação não concluída.');
-      await fetchBeneficiary();
-      setPlanFeedback(mode === 'inactive' ? 'Conta Rapidoc inativada com sucesso.' : 'Conta Rapidoc reativada com sucesso.');
-    } catch (error: any) {
-      setPlanError(error?.message || 'Não foi possível executar a ação solicitada.');
-    } finally {
-      setPlanSubmitting(false);
-    }
-  };
-
   const updateProfile = async () => {
     if (!token) return;
     try {
@@ -493,20 +467,12 @@ export default function PerfilPage() {
               >
                 {planSubmitting ? 'Salvando…' : 'Salvar alterações Rapidoc'}
               </button>
-              <button
-                onClick={() => toggleBeneficiary('inactive')}
-                disabled={planSubmitting || loadingBeneficiary}
-                className="rounded-full border border-amber-600 px-4 py-2 text-sm font-semibold text-amber-700 transition hover:bg-amber-50 disabled:opacity-60"
+              <Link
+                href="/assinante/perfil/cancelar"
+                className="inline-flex items-center justify-center rounded-full border border-amber-600 px-4 py-2 text-sm font-semibold text-amber-700 transition hover:bg-amber-50"
               >
-                Inativar conta
-              </button>
-              <button
-                onClick={() => toggleBeneficiary('reactivate')}
-                disabled={planSubmitting || loadingBeneficiary}
-                className="rounded-full border border-emerald-600 px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50 disabled:opacity-60"
-              >
-                Reativar conta
-              </button>
+                Solicitar cancelamento do plano
+              </Link>
             </div>
           </div>
         </div>

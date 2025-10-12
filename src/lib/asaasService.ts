@@ -140,3 +140,30 @@ export async function getAsaasPayment(paymentId: string) {
   const { data } = await asaas.get(`/payments/${paymentId}`);
   return data as AsaasPaymentSummary;
 }
+
+export async function findCustomerByCpf(cpf: string) {
+  return findAsaasCustomerByCpf(cpf);
+}
+
+export async function listSubscriptionsByCustomer(customerId: string, status?: string) {
+  return listAsaasSubscriptionsByCustomer(customerId, { status, limit: 100 });
+}
+
+export async function listPaymentsOfSubscription(subscriptionId: string, status?: string) {
+  const params: Record<string, string> = {};
+  if (status) {
+    params.status = status;
+  }
+
+  const { data } = await asaas.get<AsaasListResponse<AsaasPaymentSummary>>(
+    `/subscriptions/${subscriptionId}/payments`,
+    { params },
+  );
+
+  return data.data;
+}
+
+export async function updateSubscriptionStatus(subscriptionId: string, status: 'ACTIVE' | 'INACTIVE') {
+  const { data } = await asaas.put(`/subscriptions/${subscriptionId}`, { status });
+  return data as AsaasSubscription;
+}
