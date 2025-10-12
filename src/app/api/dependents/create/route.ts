@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, db } from '@/lib/firebaseAdmin';
-import { getPlan } from '@/lib/plansStore';
 import { FieldValue } from 'firebase-admin/firestore';
+import { getPlan } from '@/lib/plansStore';
+import {
+  sanitizeCPF,
+  type RapidocBeneficiaryPayload,
+  rapidocCreateOrResolveUuid,
+} from '@/lib/rapidocService';
 
 async function requireAuth(req: NextRequest) {
   const authz = req.headers.get('authorization') || '';
@@ -10,39 +15,34 @@ async function requireAuth(req: NextRequest) {
   return adminAuth.verifyIdToken(token);
 }
 
-export async function GET(req: NextRequest) {
-  try {
-    const decoded = await requireAuth(req);
-    const uid = decoded.uid;
-    const list = await db
-      .collection('dependents')
-      .where('ownerUid', '==', uid)
-      .get();
-    const data = list.docs.map((d) => ({ id: d.id, ...(d.data() as Record<string, unknown>) }));
-    return NextResponse.json({ ok: true, dependents: data });
-  } catch (e: any) {
-    const status = e?.message === 'unauthorized' ? 401 : 500;
-    return NextResponse.json({ error: e?.message || 'failed' }, { status });
-  }
-}
-
 export async function POST(req: NextRequest) {
   try {
     const decoded = await requireAuth(req);
     const uid = decoded.uid;
-    const body = await req.json();
-    const uuid = String(body?.uuid || '').trim();
-    if (!uuid) return NextResponse.json({ error: 'missing_uuid' }, { status: 400 });
-    // Load current user doc (by authUid preferred; fallback by email)
+    const body = (await req.json()) as Partial<RapidocBeneficiaryPayload> & {
+      name?: string;
+      cpf?: string;
+      birthday?: string;
+    };
+
+    const name = String(body?.name || '').trim();
+    const cpf = sanitizeCPF(String(body?.cpf || ''));
+    const birthday = String(body?.birthday || '').trim();
+
+    if (!name || !cpf || !birthday) {
+      return NextResponse.json({ error: 'missing_fields' }, { status: 400 });
+    }
+
+    // Load current user doc
     const users = db.collection('users');
     let userSnap = await users.where('authUid', '==', uid).limit(1).get();
     if (userSnap.empty && decoded.email) {
       userSnap = await users.where('email', '==', decoded.email).limit(1).get();
     }
-
-    // Determine dependents limit
     const userDoc = userSnap.empty ? null : userSnap.docs[0];
     const userData = (userDoc?.data() as Record<string, unknown>) || {};
+
+    // Resolve max dependents
     let limit: number | null = null;
     const rawLimit = userData?.maxDependents;
     if (typeof rawLimit === 'number') {
@@ -51,7 +51,6 @@ export async function POST(req: NextRequest) {
       const n = Number(rawLimit);
       limit = Number.isFinite(n) ? n : null;
     }
-
     if (limit == null) {
       const stRaw = userData?.serviceType;
       const serviceType = typeof stRaw === 'string' ? stRaw.trim().toUpperCase() : '';
@@ -63,23 +62,12 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Duplicate check: avoid repeated uuid for same owner
-    const dupCheck = await db
-      .collection('dependents')
-      .where('ownerUid', '==', uid)
-      .where('uuid', '==', uuid)
-      .limit(1)
-      .get();
-    if (!dupCheck.empty) {
-      return NextResponse.json({ ok: true, id: dupCheck.docs[0].id, duplicate: true });
-    }
-
-    // Count active dependents linked to this owner
-    const list = await db
+    // Count active dependents
+    const existing = await db
       .collection('dependents')
       .where('ownerUid', '==', uid)
       .get();
-    const activeCount = list.docs.filter((d) => {
+    const activeCount = existing.docs.filter((d) => {
       const s = String(((d.data() as any)?.status || 'active') as string).toLowerCase();
       const disabled = Boolean((d.data() as any)?.disabled);
       return !disabled && s !== 'inactive' && s !== 'inativo';
@@ -92,25 +80,43 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Create dependent record
-    const payload: Record<string, unknown> = {
+    // Create beneficiary in Rapidoc (ensure or resolve)
+    const payload: RapidocBeneficiaryPayload = {
+      name,
+      cpf,
+      birthday,
+      phone: body?.phone,
+      email: body?.email,
+      zipCode: body?.zipCode,
+      address: body?.address,
+      city: body?.city,
+      state: body?.state,
+      paymentType: body?.paymentType,
+      serviceType: body?.serviceType,
+      holder: body?.holder,
+      general: body?.general,
+    };
+
+    const ensured = await rapidocCreateOrResolveUuid(payload);
+    const uuid = ensured.uuid;
+
+    // Store dependent doc and link to user
+    const depPayload: Record<string, unknown> = {
       ownerUid: uid,
       uuid,
-      name: body?.name || null,
-      cpf: body?.cpf || null,
+      name,
+      cpf,
       status: 'active',
       createdAt: new Date(),
     };
-    const created = await db.collection('dependents').add(payload);
+    await db.collection('dependents').add(depPayload);
 
-    // Persist link in users doc (array of uuids)
     if (userDoc) {
       await userDoc.ref.set(
         { dependentUuids: FieldValue.arrayUnion(uuid), updatedAt: new Date() },
         { merge: true },
       );
     } else if (decoded.email) {
-      // If user doc doesn't exist, create a minimal one to keep the link
       await users.add({
         authUid: uid,
         email: decoded.email,
@@ -121,9 +127,10 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    return NextResponse.json({ ok: true, id: created.id });
+    return NextResponse.json({ ok: true, uuid, ensured: ensured.created });
   } catch (e: any) {
     const status = e?.message === 'unauthorized' ? 401 : 500;
     return NextResponse.json({ error: e?.message || 'failed' }, { status });
   }
 }
+

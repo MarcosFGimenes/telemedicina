@@ -40,4 +40,3 @@ Boas práticas
 - Responder rapidamente 2xx (o handler retorna `200 { ok: true }`).
 - Manter `ASAAS_WEBHOOK_SECRET` em sigilo e rotacionar quando necessário.
 - Evitar inscrever-se em todos os eventos; habilite apenas os usados.
-

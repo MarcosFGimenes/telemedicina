@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import type { FirebaseFirestore } from 'firebase-admin';
 import { adminAuth, db } from '@/lib/firebaseAdmin';
 import { listAsaasPaymentsByCustomer } from '@/lib/asaasService';
+import { getPlan } from '@/lib/plansStore';
 
 async function getAuth(req: NextRequest) {
   const authz = req.headers.get('authorization') || '';
@@ -44,6 +45,16 @@ export async function GET(req: NextRequest) {
         : '';
     if (derived) {
       (userDoc as Record<string, unknown>)['planName'] = derived;
+    }
+  }
+  // Enriquecimento: derivar maxDependents a partir do plano (quando ausente)
+  if (userDoc && (userDoc['maxDependents'] == null || userDoc['maxDependents'] === '')) {
+    const st = String(userDoc['serviceType'] || '').trim().toUpperCase();
+    if (st) {
+      const plan = await getPlan(st).catch(() => null);
+      if (plan && typeof plan.maxDependents === 'number') {
+        (userDoc as Record<string, unknown>)['maxDependents'] = plan.maxDependents;
+      }
     }
   }
   const cpf = (userDoc?.cpf as string | undefined) || null;

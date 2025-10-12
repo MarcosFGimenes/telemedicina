@@ -116,8 +116,15 @@ const isExplicitNotFound = (raw: unknown) => {
 
 const ensureBeneficiaryRecord = (raw: unknown, cpf: string): RapidocRecord | null => {
   const nested = unwrapSingleRecord(raw);
-  if (nested && (readDigits(nested.cpf) || readDigits(nested.document))) {
-    return nested;
+  if (nested) {
+    const hasCpfOrDoc = Boolean(readDigits(nested.cpf) || readDigits(nested.document));
+    const hasUuid =
+      (typeof (nested as any).uuid === 'string' && (nested as any).uuid.trim().length > 0) ||
+      (typeof (nested as any).id === 'string' && (nested as any).id.trim().length > 0) ||
+      (typeof (nested as any).beneficiaryUuid === 'string' && (nested as any).beneficiaryUuid.trim().length > 0);
+    if (hasCpfOrDoc || hasUuid) {
+      return nested;
+    }
   }
   const list = extractList(raw);
   if (list.length) {

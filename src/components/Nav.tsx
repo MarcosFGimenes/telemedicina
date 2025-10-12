@@ -41,9 +41,9 @@ export default function Nav() {
             <Image
               src="/logo.png"
               alt="Medicos Consultas Online"
-              width={120}
-              height={36}
-              className="h-9 w-auto"
+              width={312}
+              height={94}
+              className="h-[94px] w-auto"
               priority
             />
           </Link>

@@ -18,7 +18,7 @@ type BeneficiaryResponse = {
   rapidoc?: Record<string, unknown>;
 };
 
-type ApiError = 'invalid_cpf' | 'not_found' | 'missing_uuid' | 'lookup_failed';
+type ApiError = 'invalid_cpf' | 'not_found' | 'missing_birthday' | 'missing_uuid' | 'lookup_failed';
 
 const readFirebaseError = (error: unknown) => {
   if (error instanceof FirebaseError) {
@@ -46,6 +46,8 @@ export default function FirstAccessPage() {
   const [cpfError, setCpfError] = useState('');
   const [loadingCpf, setLoadingCpf] = useState(false);
   const [lookupError, setLookupError] = useState('');
+  const [needsBirthday, setNeedsBirthday] = useState(false);
+  const [birthday, setBirthday] = useState('');
 
   const [beneficiary, setBeneficiary] = useState<BeneficiaryRecord | null>(null);
   const [rapidocSnapshot, setRapidocSnapshot] = useState<Record<string, unknown> | null>(null);
@@ -69,10 +71,15 @@ export default function FirstAccessPage() {
     setLoadingCpf(true);
 
     try {
+      const payload: Record<string, string> = { cpf: sanitized };
+      if (needsBirthday && birthday) {
+        payload.birthday = birthday;
+      }
+
       const response = await fetch('/api/primeiro-acesso/beneficiario', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cpf: sanitized }),
+        body: JSON.stringify(payload),
       });
 
       if (!response.ok) {
@@ -81,6 +88,9 @@ export default function FirstAccessPage() {
           setLookupError(
             'Beneficiario nao encontrado. Por favor, cadastre-se ou entre em contato com o atendimento.',
           );
+        } else if ((data as any).error === 'missing_birthday') {
+          setNeedsBirthday(true);
+          setLookupError('Para concluir, informe sua data de nascimento.');
         } else if (data.error === 'invalid_cpf') {
           setLookupError('CPF invalido. Verifique os numeros informados.');
         } else {
@@ -96,6 +106,8 @@ export default function FirstAccessPage() {
       );
       setEmail(data.beneficiary.email ?? '');
       setStep('confirm');
+      setNeedsBirthday(false);
+      setBirthday('');
     } catch (error) {
       console.error('[primeiro-acesso][lookup]', error);
       setLookupError('Falha ao consultar a Rapidoc. Tente novamente em instantes.');
@@ -219,6 +231,24 @@ export default function FirstAccessPage() {
             />
             {cpfError && <p className="mt-2 text-sm text-red-600">{cpfError}</p>}
           </div>
+
+          {needsBirthday && (
+            <div>
+              <label className="label" htmlFor="birthday">
+                Data de nascimento
+              </label>
+              <input
+                id="birthday"
+                name="birthday"
+                type="date"
+                className="input"
+                value={birthday}
+                onChange={(e) => setBirthday(e.target.value)}
+                required
+              />
+              <p className="mt-2 text-xs text-zinc-500">Utilizaremos para localizar/criar seu cadastro.</p>
+            </div>
+          )}
 
           <button type="submit" className="btn-primary w-full" disabled={loadingCpf}>
             {loadingCpf ? 'Consultando...' : 'Continuar'}

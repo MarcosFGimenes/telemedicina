@@ -1,14 +1,7 @@
 import axios from 'axios';
 import { NextRequest, NextResponse } from 'next/server';
 
-import rapidoc, { sanitizeCPF } from '@/lib/rapidoc';
-
-const messageFromUpstream = (value: unknown): string | null => {
-  if (!value || typeof value !== 'object') return null;
-  const record = value as Record<string, unknown>;
-  const message = record['message'];
-  return typeof message === 'string' ? message : null;
-};
+import { sanitizeCPF, rapidocFindByCpf } from '@/lib/rapidocService';
 
 const jsonError = (
   hint: string,
@@ -26,10 +19,7 @@ const jsonError = (
     { status },
   );
 
-export async function GET(
-  _request: NextRequest,
-  ctx: { params: Promise<{ cpf: string }> },
-) {
+export async function GET(_request: NextRequest, ctx: { params: Promise<{ cpf: string }> }) {
   const { cpf } = await ctx.params;
   const digits = sanitizeCPF(String(cpf || ''));
 
@@ -38,27 +28,28 @@ export async function GET(
   }
 
   try {
-    const { data } = await rapidoc.get(`/beneficiaries/${digits}`);
-    if (data && typeof data === 'object' && data !== null && (data as any).success === false) {
-      const message = messageFromUpstream(data) || 'Beneficiario nao encontrado.';
-      const status = /nao encontrado/i.test(message.toLowerCase()) ? 404 : 502;
-      return NextResponse.json(
-        { hint: 'rapidoc-beneficiary-cpf-get', upstreamStatus: status, message, upstream: data },
-        { status },
-      );
+    const found = await rapidocFindByCpf(digits);
+    if (!found) {
+      return NextResponse.json({ error: '' }, { status: 404 });
     }
-    return NextResponse.json(data);
+    return NextResponse.json(found);
   } catch (error) {
     if (axios.isAxiosError(error)) {
       const status = error.response?.status && error.response.status !== 200 ? error.response.status : 500;
       const upstreamStatus = error.response?.status ?? 500;
       const upstreamData = error.response?.data;
-      const message = messageFromUpstream(upstreamData) || error.message || 'unknown error';
+      const message =
+        (typeof upstreamData === 'object' && upstreamData && (upstreamData as any).message) ||
+        (typeof upstreamData === 'object' && upstreamData && (upstreamData as any)?.error?.message) ||
+        error.message ||
+        'unknown error';
       return NextResponse.json(
         { hint: 'rapidoc-beneficiary-cpf-get', upstreamStatus, message, upstream: upstreamData ?? null },
         { status },
       );
     }
-    return jsonError('rapidoc-beneficiary-cpf-get', 500, 'unknown error');
+    const message = error instanceof Error ? error.message : 'unknown error';
+    return jsonError('rapidoc-beneficiary-cpf-get', 500, message);
   }
 }
+

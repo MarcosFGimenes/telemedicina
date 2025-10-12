@@ -68,43 +68,37 @@ export default function AssinanteDependentesPage() {
       setErr('');
       setResp(null);
 
-      const payload = [form];
-      const { data } = await axios.post('/api/rapidoc/beneficiaries', payload);
+      const { data } = await axios.post(
+        '/api/dependents/create',
+        form,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
       setResp(data);
 
-      try {
-        const raw = data;
-        let uuid: string | undefined;
-        const tryGet = (v: any): string | undefined => {
-          if (!v) return undefined;
-          if (typeof v === 'string') return v;
-          return v.uuid || v.id || v.beneficiaryUuid || undefined;
-        };
-        if (Array.isArray(raw)) {
-          uuid = tryGet(raw[0]);
-        } else if (raw?.data && Array.isArray(raw.data)) {
-          uuid = tryGet(raw.data[0]);
-        } else {
-          uuid = tryGet(raw);
-        }
-        if (uuid && token) {
-          await axios.post(
-            '/api/dependents',
-            { uuid, name: form.name, cpf: form.cpf },
-            { headers: { Authorization: `Bearer ${token}` } },
-          );
-          const li = await axios.get('/api/dependents', { headers: { Authorization: `Bearer ${token}` } });
-          const items = Array.isArray(li?.data?.dependents) ? li.data.dependents : [];
-          setDependents(items.filter((d: any) => d?.uuid).map((d: any) => ({ uuid: String(d.uuid), name: d?.name, status: d?.status })));
-        }
-      } catch {}
-    } catch (e: any) {
-      setErr(
-        e?.response?.data?.backend ||
-          e?.response?.data?.message ||
-          e?.message ||
-          'Erro ao criar beneficiário',
+      const li = await axios.get('/api/dependents', { headers: { Authorization: `Bearer ${token}` } });
+      const items = Array.isArray(li?.data?.dependents) ? li.data.dependents : [];
+      setDependents(
+        items
+          .filter((d: any) => d?.uuid)
+          .map((d: any) => ({ uuid: String(d.uuid), name: d?.name, status: d?.status })),
       );
+    } catch (e: any) {
+      const code = e?.response?.data?.error;
+      if (code === 'dependents_limit_reached') {
+        const limit = e?.response?.data?.limit;
+        setErr(
+          `Limite de dependentes atingido${
+            typeof limit === 'number' ? ` (${limit})` : ''
+          }. Remova um dependente ou altere seu plano.`,
+        );
+      } else {
+        setErr(
+          e?.response?.data?.backend ||
+            e?.response?.data?.message ||
+            e?.message ||
+            'Erro ao criar beneficiário',
+        );
+      }
     } finally {
       setLoading(false);
     }
