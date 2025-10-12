@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { slugify } from '@/lib/slug';
 import type { PlanDefinition } from '@/types/plans';
 
 const emptyForm = {
@@ -8,6 +9,7 @@ const emptyForm = {
   name: '',
   description: '',
   value: '',
+  slug: '',
 };
 
 type FormState = typeof emptyForm;
@@ -36,6 +38,7 @@ export default function AdminPlansPage() {
   const [form, setForm] = useState<FormState>(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [origin, setOrigin] = useState('');
 
   const loadPlans = useCallback(async () => {
     try {
@@ -59,6 +62,12 @@ export default function AdminPlansPage() {
     loadPlans();
   }, [loadPlans]);
 
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setOrigin(window.location.origin);
+    }
+  }, []);
+
   const handleChange = (key: keyof FormState, value: string) => {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
@@ -67,6 +76,25 @@ export default function AdminPlansPage() {
     setForm(emptyForm);
     setEditingId(null);
   };
+
+  const slugPreview = useMemo(() => {
+    const currentSlug = (form.slug || '').trim();
+    if (currentSlug) {
+      return currentSlug;
+    }
+    const fromName = slugify(form.name || '');
+    if (fromName) {
+      return fromName;
+    }
+    const fromId = slugify(form.id || '');
+    if (fromId) {
+      return fromId;
+    }
+    return '';
+  }, [form.id, form.name, form.slug]);
+
+  const checkoutPath = slugPreview ? `/assinar/${slugPreview}` : '';
+  const checkoutUrl = checkoutPath ? (origin ? `${origin}${checkoutPath}` : checkoutPath) : '';
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -125,6 +153,7 @@ export default function AdminPlansPage() {
       name: plan.name,
       description: plan.description,
       value: String(plan.value.toFixed(2)),
+      slug: plan.slug,
     });
     setSuccess('');
     setError('');
@@ -189,6 +218,18 @@ export default function AdminPlansPage() {
               onChange={(event) => handleChange('name', event.target.value)}
               placeholder="Plano Especialistas"
             />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-zinc-700">Link de assinatura</label>
+            <div className="flex items-center justify-between rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2">
+              <span className="font-mono text-xs text-emerald-700">
+                {checkoutPath ? checkoutUrl : 'Informe o código e o nome para gerar a URL'}
+              </span>
+            </div>
+            <p className="text-[11px] text-zinc-500">
+              O link é criado automaticamente e permanece associado ao plano após a publicação.
+            </p>
           </div>
 
           <div className="space-y-2 md:col-span-2">
@@ -264,43 +305,67 @@ export default function AdminPlansPage() {
             <table className="min-w-full divide-y divide-zinc-200 text-sm">
               <thead className="bg-zinc-50 text-left text-xs uppercase tracking-wide text-zinc-500">
                 <tr>
-                  <th className="px-4 py-2">Código</th>
+                  <th className="px-4 py-2">Codigo</th>
                   <th className="px-4 py-2">Nome</th>
-                  <th className="px-4 py-2">Descrição</th>
+                  <th className="px-4 py-2">URL de assinatura</th>
+                  <th className="px-4 py-2">Descricao</th>
                   <th className="px-4 py-2 text-right">Valor</th>
-                  <th className="px-4 py-2 text-right">Ações</th>
+                  <th className="px-4 py-2 text-right">Acoes</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100">
-                {plans.map((plan) => (
-                  <tr key={plan.id} className="bg-white/80">
-                    <td className="px-4 py-3 font-mono text-xs uppercase text-zinc-500">{plan.id}</td>
-                    <td className="px-4 py-3 font-medium text-zinc-700">{plan.name}</td>
-                    <td className="px-4 py-3 text-zinc-500">{plan.description || '—'}</td>
-                    <td className="px-4 py-3 text-right font-medium text-zinc-700">
-                      {currency.format(plan.value)}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={() => startEdit(plan)}
-                          className="rounded-lg border border-emerald-200 px-3 py-1 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-50"
-                        >
-                          Editar
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(plan)}
-                          className="rounded-lg border border-red-200 px-3 py-1 text-xs font-semibold text-red-600 transition hover:bg-red-50"
-                        >
-                          Remover
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
+                {plans.map((plan) => {
+                  const planHref = `/assinar/${plan.slug}`;
+                  const planDisplayUrl = origin ? `${origin}${planHref}` : planHref;
+                  return (
+                    <tr key={plan.id} className="bg-white/80">
+                      <td className="px-4 py-3 font-mono text-xs uppercase text-zinc-500">{plan.id}</td>
+                      <td className="px-4 py-3 font-medium text-zinc-700">{plan.name}</td>
+                      <td className="px-4 py-3">
+                        {plan.slug ? (
+                          <div className="flex flex-col items-start gap-1">
+                            <a
+                              href={planHref}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="font-mono text-xs text-emerald-700 underline-offset-2 hover:underline"
+                            >
+                              {planDisplayUrl}
+                            </a>
+                            <span className="text-[11px] uppercase tracking-wide text-emerald-500">
+                              Compartilhe esta URL
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-zinc-400">URL indisponivel</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-zinc-500">{plan.description || '...'}</td>
+                      <td className="px-4 py-3 text-right font-medium text-zinc-700">
+                        {currency.format(plan.value)}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => startEdit(plan)}
+                            className="rounded-lg border border-emerald-200 px-3 py-1 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-50"
+                          >
+                            Editar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(plan)}
+                            className="rounded-lg border border-red-200 px-3 py-1 text-xs font-semibold text-red-600 transition hover:bg-red-50"
+                          >
+                            Remover
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+</tbody>
             </table>
           </div>
         )}

@@ -22,11 +22,6 @@ const primaryLinks = [
     label: 'Gestão Administrativa',
     match: (pathname: string) => pathname.startsWith('/admin'),
   },
-  {
-    href: '/teste-rapidoc',
-    label: 'Laboratório Rapidoc',
-    match: (pathname: string) => pathname.startsWith('/teste-rapidoc'),
-  },
 ];
 
 export default function Nav() {

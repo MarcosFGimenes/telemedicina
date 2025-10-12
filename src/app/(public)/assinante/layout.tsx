@@ -241,19 +241,18 @@ export default function AssinanteLayout({ children }: { children: React.ReactNod
               <div className="rounded-2xl border border-emerald-200 bg-emerald-50/80 p-4 text-xs text-emerald-700">
                 <p className="font-semibold">Precisa de ajuda?</p>
                 <p className="mt-1">
-                  Confira o laboratorio Rapidoc para visualizar requisicoes em tempo real ou acesse o painel administrativo para
-                  suporte especializado.
+                  Utilize o painel administrativo para copiar links de assinatura ou solicitar suporte especializado.
                 </p>
                 <div className="mt-3 flex gap-2">
-                  <Link href="/teste-rapidoc" className="rounded-full bg-white px-3 py-1 text-[11px] font-semibold text-emerald-700">
-                    Rapidoc Live
-                  </Link>
-                  <Link href="/admin/dashboard" className="rounded-full border border-white/70 px-3 py-1 text-[11px] font-semibold text-emerald-700">
+                  <Link
+                    href="/admin/dashboard"
+                    className="rounded-full border border-white/70 px-3 py-1 text-[11px] font-semibold text-emerald-700"
+                  >
                     Fale com o admin
                   </Link>
                 </div>
               </div>
-            </div>
+                </div>
           </aside>
           <section className="space-y-6">
             <header className="rounded-3xl border border-white/70 bg-white/90 p-6 shadow-sm">

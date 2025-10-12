@@ -1,5 +1,9 @@
 export type PlanDefinition = {
   /**
+   * Slug utilizado para construir a URL pública do plano.
+   */
+  slug: string;
+  /**
    * Código interno que coincide com o serviceType utilizado na Rapidoc.
    */
   id: string;
@@ -10,7 +14,9 @@ export type PlanDefinition = {
   name: string;
   description: string;
   value: number;
-  /** Número máximo de dependentes permitidos no plano. */
+  /**
+   * Número máximo de dependentes permitidos no plano.
+   */
   maxDependents: number;
   createdAt: string;
   updatedAt: string;
@@ -22,6 +28,7 @@ export type PlanPayload = {
   description?: string;
   value: number;
   maxDependents?: number;
+  slug?: string;
 };
 
 export type PlanUpdatePayload = {
@@ -29,4 +36,5 @@ export type PlanUpdatePayload = {
   description?: string;
   value?: number;
   maxDependents?: number;
+  slug?: string;
 };

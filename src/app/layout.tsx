@@ -40,12 +40,6 @@ export default function RootLayout({
                   >
                     Gestão administrativa
                   </Link>
-                  <Link
-                    href="/teste-rapidoc"
-                    className="text-emerald-700 underline-offset-2 hover:underline"
-                  >
-                    Laboratório Rapidoc
-                  </Link>
                 </div>
               </div>
             </footer>

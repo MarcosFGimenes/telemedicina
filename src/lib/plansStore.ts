@@ -1,5 +1,6 @@
 import type { DocumentSnapshot, QueryDocumentSnapshot } from 'firebase-admin/firestore';
 import { db } from '@/lib/firebaseAdmin';
+import { firstAvailableSlug, slugify } from '@/lib/slug';
 import type { PlanDefinition, PlanPayload, PlanUpdatePayload } from '@/types/plans';
 
 const PLANS_COLLECTION = 'plans';
@@ -21,6 +22,15 @@ const toISOString = (value: unknown, fallback: string) => {
   return fallback;
 };
 
+const extractNumericalValue = (input: unknown): number => {
+  const value = Number(
+    typeof input === 'number' || typeof input === 'string'
+      ? input
+      : 0,
+  );
+  return Number.isFinite(value) ? value : 0;
+};
+
 const normalizePlanDoc = (doc: QueryDocumentSnapshot | DocumentSnapshot): PlanDefinition => {
   const data = (doc.data() || {}) as Record<string, unknown>;
   const now = new Date().toISOString();
@@ -28,70 +38,158 @@ const normalizePlanDoc = (doc: QueryDocumentSnapshot | DocumentSnapshot): PlanDe
   const id = String(data.id || serviceType || doc.id || '').trim().toUpperCase() || serviceType;
   const name = String(data.name || '').trim();
   const description = String(data.description || '').trim();
-  const valueRaw = data.value;
-  const value = Number(
-    typeof valueRaw === 'number' || typeof valueRaw === 'string' ? valueRaw : 0,
-  );
-  const normalizedValue = Number.isFinite(value) ? value : 0;
-  const maxDependentsRaw = data.maxDependents;
-  const maxDependents = Number(
-    typeof maxDependentsRaw === 'number' || typeof maxDependentsRaw === 'string'
-      ? maxDependentsRaw
-      : 0,
-  );
-
+  const value = extractNumericalValue(data.value);
+  const maxDependents = extractNumericalValue(data.maxDependents);
   const createdAt = toISOString(data.createdAt, now);
   const updatedAt = toISOString(data.updatedAt, createdAt);
 
+  const fallbackSource = doc.id || id || serviceType || name || `${Date.now()}`;
+  const fallbackSlug = slugify(fallbackSource) || slugify(`${Date.now()}`);
+
+  const slug = firstAvailableSlug(
+    typeof data.slug === 'string' ? data.slug : '',
+    name,
+    serviceType,
+    id,
+    doc.id,
+  ) || `plano-${fallbackSlug}`;
+
   return {
+    slug,
     id: id || serviceType,
     serviceType: serviceType || id,
     name,
     description,
-    value: normalizedValue,
-    maxDependents: Number.isFinite(maxDependents) ? maxDependents : 0,
+    value,
+    maxDependents,
     createdAt,
     updatedAt,
   };
 };
 
-const findPlanDoc = async (id: string) => {
-  const normalizedId = id.trim().toUpperCase();
-  if (!normalizedId) {
+const findPlanDoc = async (identifier: string) => {
+  const input = identifier.trim();
+  if (!input) {
     return null;
   }
 
-  const direct = await db.collection(PLANS_COLLECTION).doc(normalizedId).get();
-  if (direct.exists) {
-    return direct;
+  const candidates = Array.from(new Set([input, input.toUpperCase(), input.toLowerCase()])) as string[];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const doc = await db.collection(PLANS_COLLECTION).doc(candidate).get();
+    if (doc.exists) {
+      return doc;
+    }
   }
 
-  const byId = await db
-    .collection(PLANS_COLLECTION)
-    .where('id', '==', normalizedId)
-    .limit(1)
-    .get();
-  if (!byId.empty) {
-    return byId.docs[0];
+  const normalizedId = input.toUpperCase();
+  if (normalizedId) {
+    const byId = await db
+      .collection(PLANS_COLLECTION)
+      .where('id', '==', normalizedId)
+      .limit(1)
+      .get();
+    if (!byId.empty) {
+      return byId.docs[0];
+    }
+
+    const byServiceType = await db
+      .collection(PLANS_COLLECTION)
+      .where('serviceType', '==', normalizedId)
+      .limit(1)
+      .get();
+    if (!byServiceType.empty) {
+      return byServiceType.docs[0];
+    }
   }
 
-  const byServiceType = await db
-    .collection(PLANS_COLLECTION)
-    .where('serviceType', '==', normalizedId)
-    .limit(1)
-    .get();
-  if (!byServiceType.empty) {
-    return byServiceType.docs[0];
+  const slug = slugify(input);
+  if (slug) {
+    const bySlug = await db
+      .collection(PLANS_COLLECTION)
+      .where('slug', '==', slug)
+      .limit(1)
+      .get();
+    if (!bySlug.empty) {
+      return bySlug.docs[0];
+    }
   }
 
   return null;
 };
 
+const slugExists = async (slug: string, ignoreDocId?: string) => {
+  if (!slug) {
+    return false;
+  }
+  const snapshot = await db
+    .collection(PLANS_COLLECTION)
+    .where('slug', '==', slug)
+    .limit(1)
+    .get();
+
+  if (snapshot.empty) {
+    return false;
+  }
+
+  const [doc] = snapshot.docs;
+  if (ignoreDocId && doc.id === ignoreDocId) {
+    return false;
+  }
+
+  return true;
+};
+
+const ensureUniqueSlug = async (candidate: string, ignoreDocId?: string) => {
+  if (!candidate) {
+    return candidate;
+  }
+
+  let slug = candidate;
+  let counter = 2;
+  while (await slugExists(slug, ignoreDocId)) {
+    slug = `${candidate}-${counter}`;
+    counter += 1;
+  }
+
+  return slug;
+};
+
+const resolvePlanSlug = async (
+  payloadSlug: string | undefined,
+  fallbacks: string[],
+  ignoreDocId?: string,
+) => {
+  const baseSlug = firstAvailableSlug(payloadSlug, ...fallbacks);
+  if (!baseSlug) {
+    throw new Error('Não foi possível gerar uma URL única para o plano.');
+  }
+  return ensureUniqueSlug(baseSlug, ignoreDocId);
+};
+
+const persistSlugIfNeeded = async (
+  doc: QueryDocumentSnapshot | DocumentSnapshot,
+  plan: PlanDefinition,
+) => {
+  const data = doc.data() as Record<string, unknown> | undefined;
+  const storedSlug = typeof data?.slug === 'string' ? slugify(data.slug) : '';
+  if (plan.slug && storedSlug !== plan.slug) {
+    await doc.ref.update({ slug: plan.slug });
+  }
+};
+
 export async function listPlans(): Promise<PlanDefinition[]> {
   const snapshot = await db.collection(PLANS_COLLECTION).orderBy('name').get();
-  return snapshot.docs
-    .map((doc) => normalizePlanDoc(doc))
-    .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+
+  const plans = await Promise.all(
+    snapshot.docs.map(async (doc) => {
+      const plan = normalizePlanDoc(doc);
+      await persistSlugIfNeeded(doc, plan);
+      return plan;
+    }),
+  );
+
+  return plans.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
 }
 
 export async function getPlan(id: string): Promise<PlanDefinition | null> {
@@ -99,7 +197,37 @@ export async function getPlan(id: string): Promise<PlanDefinition | null> {
   if (!doc) {
     return null;
   }
-  return normalizePlanDoc(doc);
+  const plan = normalizePlanDoc(doc);
+  await persistSlugIfNeeded(doc, plan);
+  return plan;
+}
+
+export async function getPlanBySlug(slug: string): Promise<PlanDefinition | null> {
+  const normalizedSlug = slugify(slug);
+  if (!normalizedSlug) {
+    return null;
+  }
+
+  const snapshot = await db
+    .collection(PLANS_COLLECTION)
+    .where('slug', '==', normalizedSlug)
+    .limit(1)
+    .get();
+
+  if (!snapshot.empty) {
+    const doc = snapshot.docs[0];
+    const plan = normalizePlanDoc(doc);
+    await persistSlugIfNeeded(doc, plan);
+    return plan.slug === normalizedSlug ? plan : null;
+  }
+
+  const fallbackDoc = await findPlanDoc(normalizedSlug);
+  if (!fallbackDoc) {
+    return null;
+  }
+  const plan = normalizePlanDoc(fallbackDoc);
+  await persistSlugIfNeeded(fallbackDoc, plan);
+  return plan.slug === normalizedSlug ? plan : null;
 }
 
 export async function createPlan(payload: PlanPayload): Promise<PlanDefinition> {
@@ -131,9 +259,12 @@ export async function createPlan(payload: PlanPayload): Promise<PlanDefinition> 
 
   const now = new Date().toISOString();
 
+  const slug = await resolvePlanSlug(payload.slug, [name, id], undefined);
+
   const data = {
     id,
     serviceType: id,
+    slug,
     name,
     description: payload.description?.trim() || '',
     value,
@@ -183,6 +314,8 @@ export async function updatePlan(id: string, payload: PlanUpdatePayload): Promis
       ? payload.description.trim()
       : current.description;
 
+  const slug = await resolvePlanSlug(payload.slug, [current.slug, name, current.name, current.id], doc.id);
+
   const updatedAt = new Date().toISOString();
 
   await doc.ref.update({
@@ -190,6 +323,7 @@ export async function updatePlan(id: string, payload: PlanUpdatePayload): Promis
     value,
     description,
     maxDependents,
+    slug,
     updatedAt,
   });
 

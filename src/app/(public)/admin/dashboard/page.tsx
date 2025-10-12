@@ -141,9 +141,9 @@ export default function AdminDashboardPage() {
             <span className="block text-lg font-semibold text-emerald-700">Financeiro Asaas</span>
             <span className="text-xs text-zinc-500">Validar pagamentos antes da liberação de acesso.</span>
           </Link>
-          <Link href="/teste-rapidoc" className="rounded-2xl border border-emerald-200 bg-emerald-50/80 p-4 text-sm transition hover:border-emerald-300">
-            <span className="block text-lg font-semibold text-emerald-700">Laboratório Rapidoc</span>
-            <span className="text-xs text-emerald-600">Teste integrações, planos e cobranças em sandbox.</span>
+          <Link href="/admin/planos" className="rounded-2xl border border-emerald-200 bg-emerald-50/80 p-4 text-sm transition hover:border-emerald-300">
+            <span className="block text-lg font-semibold text-emerald-700">Planos e assinaturas</span>
+            <span className="text-xs text-emerald-600">Gerencie valores e copie links individuais de assinatura.</span>
           </Link>
         </div>
       </section>
