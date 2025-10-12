@@ -3,6 +3,7 @@
 import axios from 'axios';
 import { useEffect, useMemo, useState } from 'react';
 import { useAuthContext } from '@/components/auth/AuthProvider';
+import PayloadPreview from '@/components/ui/PayloadPreview';
 
 type Patient = { uuid: string; label: string };
 
@@ -13,6 +14,21 @@ export default function AtendimentoImediatoPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<unknown>(null);
+  const resultMessage = useMemo(() => {
+    if (!result) return '';
+    if (typeof result === 'string') return result;
+    if (typeof result === 'object') {
+      const record = result as Record<string, unknown>;
+      const messageKeys = ['message', 'detail', 'status'];
+      for (const key of messageKeys) {
+        const value = record[key];
+        if (typeof value === 'string' && value.trim().length > 0) {
+          return value;
+        }
+      }
+    }
+    return '';
+  }, [result]);
 
   useEffect(() => {
     const loadPatients = async () => {
@@ -74,7 +90,7 @@ export default function AtendimentoImediatoPage() {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-3xl border border-white/70 bg-white/90 p-6 shadow-sm">
+      <section className="rounded-3xl border border-white/70 bg-white/90 p-5 shadow-sm sm:p-6">
         <h2 className="text-lg font-semibold text-zinc-900">Solicitar atendimento imediato</h2>
         <p className="mt-1 text-sm text-zinc-600">
           O atendimento imediato é realizado por um Clínico Geral (generalista) e deve ser aberto em uma nova janela.
@@ -110,11 +126,18 @@ export default function AtendimentoImediatoPage() {
         </div>
 
         {error && <p className="mt-3 text-sm text-red-600">{String(error)}</p>}
+        {resultMessage && (
+          <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50/80 p-4 text-sm text-emerald-700">
+            {resultMessage}
+          </div>
+        )}
         {result && (
-          <details className="mt-4 rounded-2xl border border-white/70 bg-white/80 p-4 text-xs text-zinc-600">
-            <summary className="cursor-pointer text-sm font-semibold text-emerald-700">Detalhes técnicos</summary>
-            <pre className="mt-3 whitespace-pre-wrap break-all text-[11px] leading-relaxed">{JSON.stringify(result, null, 2)}</pre>
-          </details>
+          <PayloadPreview
+            data={result}
+            title="Retorno da Rapidoc"
+            description="Utilize os detalhes abaixo apenas para auditoria e suporte técnico."
+            className="mt-4"
+          />
         )}
       </section>
     </div>

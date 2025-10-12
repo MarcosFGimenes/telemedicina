@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import PayloadPreview from '@/components/ui/PayloadPreview';
 
 type Appointment = {
   id?: string;
@@ -75,7 +76,7 @@ export default function AdminAgendamentosPage() {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-3xl border border-white/70 bg-white/90 p-6 shadow-sm">
+      <section className="rounded-3xl border border-white/70 bg-white/90 p-5 shadow-sm sm:p-6">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-lg font-semibold text-zinc-900">Monitoramento da agenda</h2>
@@ -111,7 +112,7 @@ export default function AdminAgendamentosPage() {
         </p>
       </section>
 
-      <section className="rounded-3xl border border-white/70 bg-white/90 p-6 shadow-sm">
+      <section className="rounded-3xl border border-white/70 bg-white/90 p-5 shadow-sm sm:p-6">
         {!filtered.length && !loading && (
           <p className="text-sm text-zinc-500">Nenhum agendamento encontrado para o filtro selecionado.</p>
         )}
@@ -141,12 +142,12 @@ export default function AdminAgendamentosPage() {
                       <span className="font-semibold text-zinc-800">Horário:</span> {formatDate(appt.scheduledAt)}
                     </p>
                   </div>
-                  <details className="mt-3 text-xs text-zinc-500">
-                    <summary className="cursor-pointer text-emerald-700">Ver payload completo</summary>
-                    <pre className="mt-2 whitespace-pre-wrap break-all text-[11px] leading-relaxed">
-                      {JSON.stringify(appt, null, 2)}
-                    </pre>
-                  </details>
+                  <PayloadPreview
+                    data={appt}
+                    title="Detalhes técnicos"
+                    description="Dados completos retornados pela Rapidoc para auditoria."
+                    className="mt-3"
+                  />
                 </article>
               );
             })}

@@ -1,6 +1,7 @@
 'use client';
 
-import { FormEvent, useState } from 'react';
+import { FormEvent, useMemo, useState } from 'react';
+import PayloadPreview from '@/components/ui/PayloadPreview';
 
 type StatusResult = {
   status?: string;
@@ -14,8 +15,6 @@ type FinalizeResult = {
   [key: string]: unknown;
 };
 
-const pretty = (payload: unknown) => JSON.stringify(payload ?? {}, null, 2);
-
 export default function AdminFinanceiroPage() {
   const [paymentId, setPaymentId] = useState('');
   const [statusResult, setStatusResult] = useState<StatusResult | null>(null);
@@ -26,6 +25,20 @@ export default function AdminFinanceiroPage() {
   const [finalizeResult, setFinalizeResult] = useState<FinalizeResult | null>(null);
   const [finalizeError, setFinalizeError] = useState('');
   const [finalizeLoading, setFinalizeLoading] = useState(false);
+  const normalizedStatus = useMemo(() => {
+    if (!statusResult?.status) return '';
+    return String(statusResult.status).toUpperCase();
+  }, [statusResult?.status]);
+  const finalizeMessage = useMemo(() => {
+    if (!finalizeResult) return '';
+    if (typeof finalizeResult.message === 'string' && finalizeResult.message.trim().length > 0) {
+      return finalizeResult.message;
+    }
+    if (typeof finalizeResult.status === 'string') {
+      return String(finalizeResult.status);
+    }
+    return '';
+  }, [finalizeResult]);
 
   const checkStatus = async () => {
     if (!paymentId) {
@@ -80,7 +93,7 @@ export default function AdminFinanceiroPage() {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-3xl border border-white/70 bg-white/90 p-6 shadow-sm">
+      <section className="rounded-3xl border border-white/70 bg-white/90 p-5 shadow-sm sm:p-6">
         <h2 className="text-lg font-semibold text-zinc-900">Auditoria financeira</h2>
         <p className="mt-1 text-sm text-zinc-600">
           Utilize o paymentId gerado pelo Asaas para consultar o status do pagamento e, quando confirmado, finalizar o fluxo de
@@ -106,16 +119,23 @@ export default function AdminFinanceiroPage() {
         </div>
         {statusError && <p className="mt-3 text-sm text-red-600">{statusError}</p>}
         {statusResult && (
-          <details className="mt-4 rounded-2xl border border-white/70 bg-white/80 p-4 text-xs text-zinc-600">
-            <summary className="cursor-pointer text-sm font-semibold text-emerald-700">
-              Status: {String(statusResult.status || '—').toUpperCase()}
-            </summary>
-            <pre className="mt-3 whitespace-pre-wrap break-all text-[11px] leading-relaxed">{pretty(statusResult.raw ?? statusResult)}</pre>
-          </details>
+          <>
+            {normalizedStatus && (
+              <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50/80 p-4 text-sm text-emerald-700">
+                Status atual: {normalizedStatus}
+              </div>
+            )}
+            <PayloadPreview
+              data={statusResult.raw ?? statusResult}
+              title="Retorno da consulta"
+              description="Payload completo retornado pelo endpoint de status do checkout."
+              className="mt-4"
+            />
+          </>
         )}
       </section>
 
-      <section className="rounded-3xl border border-white/70 bg-white/90 p-6 shadow-sm">
+      <section className="rounded-3xl border border-white/70 bg-white/90 p-5 shadow-sm sm:p-6">
         <h2 className="text-lg font-semibold text-zinc-900">Finalizar ativação do plano</h2>
         <p className="mt-1 text-sm text-zinc-600">
           Após a confirmação do pagamento, finalize o beneficiário para criar automaticamente o registro Rapidoc e vincular ao
@@ -154,11 +174,18 @@ export default function AdminFinanceiroPage() {
         </form>
 
         {finalizeError && <p className="mt-3 text-sm text-red-600">{finalizeError}</p>}
+        {finalizeMessage && (
+          <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50/80 p-4 text-sm text-emerald-700">
+            {finalizeMessage}
+          </div>
+        )}
         {finalizeResult && (
-          <details className="mt-4 rounded-2xl border border-white/70 bg-white/80 p-4 text-xs text-zinc-600">
-            <summary className="cursor-pointer text-sm font-semibold text-emerald-700">Retorno do fluxo</summary>
-            <pre className="mt-3 whitespace-pre-wrap break-all text-[11px] leading-relaxed">{pretty(finalizeResult ?? {})}</pre>
-          </details>
+          <PayloadPreview
+            data={finalizeResult}
+            title="Retorno do fluxo"
+            description="Detalhes da finalização automática após o pagamento confirmado."
+            className="mt-4"
+          />
         )}
       </section>
 

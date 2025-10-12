@@ -96,8 +96,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   return (
     <AuthGuard requireAdmin>
-      <div className="grid gap-6 lg:grid-cols-[280px,1fr]">
-        <aside className="h-max rounded-3xl border border-white/70 bg-white/90 p-6 shadow-sm">
+      <div className="space-y-6 lg:grid lg:grid-cols-[280px,1fr] lg:items-start lg:gap-6 lg:space-y-0">
+        <aside className="hidden h-max rounded-3xl border border-white/70 bg-white/90 p-6 shadow-sm lg:block">
           <div className="space-y-4">
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">Gestão administrativa</p>
@@ -134,13 +134,44 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             </div>
           </div>
         </aside>
-        <section className="space-y-6">
-          <header className="rounded-3xl border border-white/70 bg-white/90 p-6 shadow-sm">
+
+        <div className="space-y-6">
+          <section className="rounded-3xl border border-white/70 bg-white/90 p-5 shadow-sm lg:hidden">
+            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">Gestão administrativa</p>
+            <p className="mt-1 text-sm text-zinc-500">
+              {greeting}, <span className="font-medium text-zinc-700">{user?.email ?? 'administrador'}</span>
+            </p>
+          </section>
+
+          <nav className="lg:hidden">
+            <div className="flex gap-3 overflow-x-auto pb-2">
+              {navLinks.map((link) => {
+                const isActive = pathname === link.href;
+                return (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    className={clsx(
+                      'flex min-w-[220px] flex-col rounded-2xl border px-4 py-3',
+                      isActive
+                        ? 'border-emerald-300 bg-emerald-50/90 text-emerald-700 shadow-sm'
+                        : 'border-white/70 bg-white/90 text-zinc-600',
+                    )}
+                  >
+                    <span className="text-sm font-semibold">{link.label}</span>
+                    <span className="text-xs">{link.helper}</span>
+                  </Link>
+                );
+              })}
+            </div>
+          </nav>
+
+          <section className="rounded-3xl border border-white/70 bg-white/90 p-5 shadow-sm sm:p-6">
             <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">{meta.description}</p>
             <h1 className="mt-2 text-3xl font-semibold text-zinc-900">{meta.title}</h1>
-          </header>
+          </section>
           <div className="space-y-6">{children}</div>
-        </section>
+        </div>
       </div>
     </AuthGuard>
   );
