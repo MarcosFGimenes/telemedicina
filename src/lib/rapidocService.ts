@@ -286,4 +286,33 @@ export async function deactivateBeneficiary(uuid: string) {
   return rapidocDeleteBeneficiary(uuid);
 }
 
+export async function rapidocGetBeneficiary(uuid: string): Promise<RapidocRecord | null> {
+  try {
+    const { data } = await rapidoc.get(`/beneficiaries/${uuid}`);
+    if (isExplicitNotFound(data)) {
+      return null;
+    }
+    const unwrapped = unwrapSingleRecord(data);
+    if (unwrapped) {
+      return unwrapped;
+    }
+    return isRecord(data) ? data : null;
+  } catch (error) {
+    if (axios.isAxiosError(error)) {
+      if ((error.response?.status ?? 0) === 404) {
+        return null;
+      }
+    }
+    throw error;
+  }
+}
+
+export async function rapidocUpdateBeneficiary(
+  uuid: string,
+  payload: Record<string, unknown>,
+): Promise<unknown> {
+  const { data } = await rapidoc.put(`/beneficiaries/${uuid}`, payload);
+  return data;
+}
+
 

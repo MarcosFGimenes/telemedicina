@@ -2,6 +2,9 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
+import { useAuthContext } from '@/components/auth/AuthProvider';
+import PlanChangeDialog from '@/components/plan/PlanChangeDialog';
+import PaymentMethodDialog from '@/components/plan/PaymentMethodDialog';
 
 type Beneficiary = {
   uuid: string;
@@ -124,6 +127,7 @@ type EditForm = Partial<
 const defaultForm: EditForm = {};
 
 export default function AdminBeneficiariosPage() {
+  const { token } = useAuthContext();
   const [list, setList] = useState<Beneficiary[]>([]);
   const [selectedUuid, setSelectedUuid] = useState<string>('');
   const [search, setSearch] = useState('');
@@ -132,11 +136,18 @@ export default function AdminBeneficiariosPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [form, setForm] = useState<EditForm>(defaultForm);
+  const [showPlanChange, setShowPlanChange] = useState(false);
+  const [showPaymentDialog, setShowPaymentDialog] = useState(false);
 
   const selected = useMemo(
     () => list.find((item) => item.uuid === selectedUuid) ?? null,
     [list, selectedUuid],
   );
+
+  const planChangeTarget = useMemo(() => {
+    if (!selected) return undefined;
+    return { beneficiaryUuid: selected.uuid, cpf: selected.cpf };
+  }, [selected]);
 
   const filtered = useMemo(() => {
     if (!search.trim()) {
@@ -476,6 +487,20 @@ export default function AdminBeneficiariosPage() {
             </button>
             <button
               type="button"
+              onClick={() => setShowPlanChange(true)}
+              className="rounded-full border border-emerald-200 px-5 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50"
+            >
+              Alterar plano
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowPaymentDialog(true)}
+              className="rounded-full border border-emerald-200 px-5 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50"
+            >
+              Alterar forma de pagamento
+            </button>
+            <button
+              type="button"
               onClick={handleDeactivate}
               className="rounded-full border border-red-200 px-5 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50"
             >
@@ -497,6 +522,29 @@ export default function AdminBeneficiariosPage() {
           <p>Selecione um beneficiário na tabela para visualizar e editar os detalhes.</p>
         </section>
       )}
+
+      <PlanChangeDialog
+        open={showPlanChange && Boolean(selected)}
+        onClose={() => setShowPlanChange(false)}
+        token={token || null}
+        mode="admin"
+        target={planChangeTarget}
+        onSuccess={() => {
+          setShowPlanChange(false);
+          void loadBeneficiaries();
+        }}
+      />
+      <PaymentMethodDialog
+        open={showPaymentDialog && Boolean(selected)}
+        onClose={() => setShowPaymentDialog(false)}
+        token={token || null}
+        mode="admin"
+        target={planChangeTarget}
+        onSuccess={() => {
+          setShowPaymentDialog(false);
+          void loadBeneficiaries();
+        }}
+      />
     </div>
   );
 }

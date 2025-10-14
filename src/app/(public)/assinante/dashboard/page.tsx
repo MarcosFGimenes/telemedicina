@@ -2,7 +2,9 @@
 
 import Link from 'next/link';
 import { useAuthContext } from '@/components/auth/AuthProvider';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import PlanChangeDialog from '@/components/plan/PlanChangeDialog';
+import type { PlanDefinition } from '@/types/plans';
 
 type Payment = {
   id: string;
@@ -79,39 +81,43 @@ export default function AssinanteDashboard() {
   const [beneficiary, setBeneficiary] = useState<Beneficiary | null>(null);
   const [beneficiaryLoading, setBeneficiaryLoading] = useState(false);
   const [beneficiaryError, setBeneficiaryError] = useState('');
+  const [planDefinition, setPlanDefinition] = useState<PlanDefinition | null>(null);
+  const [showPlanChange, setShowPlanChange] = useState(false);
+
+  const loadSnapshot = useCallback(async () => {
+    if (!token) return;
+    try {
+      setLoading(true);
+      setError('');
+      const headers = { Authorization: `Bearer ${token}` };
+      const [meRes, depRes] = await Promise.all([
+        fetch('/api/me', { headers }),
+        fetch('/api/dependents', { headers }),
+      ]);
+
+      if (!meRes.ok) throw new Error('Não foi possível carregar seus dados.');
+      const me = (await meRes.json()) as MeResponse;
+      let dependents: Dependent[] = [];
+      if (depRes.ok) {
+        const depJson = await depRes.json();
+        const items = Array.isArray(depJson?.dependents) ? depJson.dependents : [];
+        dependents = items
+          .filter((item: any) => item?.uuid)
+          .map((item: any) => ({ uuid: String(item.uuid), name: item?.name, status: item?.status }));
+      }
+
+      setData({ me, dependents });
+    } catch (e: any) {
+      setError(e?.message || 'Falha ao carregar informações do assinante.');
+    } finally {
+      setLoading(false);
+    }
+  }, [token]);
 
   useEffect(() => {
-    const load = async () => {
-      if (!token) return;
-      try {
-        setLoading(true);
-        setError('');
-        const headers = { Authorization: `Bearer ${token}` };
-        const [meRes, depRes] = await Promise.all([
-          fetch('/api/me', { headers }),
-          fetch('/api/dependents', { headers }),
-        ]);
+    void loadSnapshot();
+  }, [loadSnapshot]);
 
-        if (!meRes.ok) throw new Error('Não foi possível carregar seus dados.');
-        const me = (await meRes.json()) as MeResponse;
-        let dependents: Dependent[] = [];
-        if (depRes.ok) {
-          const depJson = await depRes.json();
-          const items = Array.isArray(depJson?.dependents) ? depJson.dependents : [];
-          dependents = items
-            .filter((item: any) => item?.uuid)
-            .map((item: any) => ({ uuid: String(item.uuid), name: item?.name, status: item?.status }));
-        }
-
-        setData({ me, dependents });
-      } catch (e: any) {
-        setError(e?.message || 'Falha ao carregar informações do assinante.');
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
-  }, [token]);
 
   useEffect(() => {
     const uuid = data.me?.user?.beneficiaryUuid;
@@ -158,12 +164,46 @@ export default function AssinanteDashboard() {
     };
   }, [data.me?.user?.beneficiaryUuid, data.me?.user?.cpf]);
 
+  const planIdentifier = useMemo(() => {
+    if (data.me?.user?.planId) return String(data.me.user.planId).trim().toUpperCase();
+    if (data.me?.user?.serviceType) return String(data.me.user.serviceType).trim().toUpperCase();
+    if (beneficiary?.serviceType) return String(beneficiary.serviceType).trim().toUpperCase();
+    return '';
+  }, [data.me?.user?.planId, data.me?.user?.serviceType, beneficiary?.serviceType]);
+
+  useEffect(() => {
+    if (!planIdentifier) {
+      setPlanDefinition(null);
+      return;
+    }
+    let cancelled = false;
+    const loadPlan = async () => {
+      try {
+        const res = await fetch(`/api/plans/${planIdentifier}`);
+        if (!res.ok) throw new Error('plan-not-found');
+        const plan = (await res.json()) as PlanDefinition;
+        if (!cancelled) {
+          setPlanDefinition(plan);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setPlanDefinition(null);
+        }
+      }
+    };
+    void loadPlan();
+    return () => {
+      cancelled = true;
+    };
+  }, [planIdentifier]);
+
   const status = beneficiary?.status
     ? String(beneficiary.status).toUpperCase()
     : data.me?.user?.status
     ? String(data.me.user.status).toUpperCase()
     : 'PENDENTE';
   const beneficiaryUuid = beneficiary?.uuid || beneficiary?.id || data.me?.user?.beneficiaryUuid || '';
+  const isPlanActive = status === 'ATIVO' || status === 'ACTIVE';
 
   const mapServiceType = (value?: string) => {
     switch ((value || '').toUpperCase()) {
@@ -182,14 +222,19 @@ export default function AssinanteDashboard() {
     }
   };
 
-  const planName = useMemo(() => {
-    if (beneficiary?.serviceType) return mapServiceType(beneficiary.serviceType);
+const planName = useMemo(() => {
+    if (planDefinition?.name) return planDefinition.name;
     const raw = data.me?.user?.planName as string | undefined;
     if (raw) return raw;
+    if (beneficiary?.serviceType) return mapServiceType(beneficiary.serviceType);
     const st = data.me?.user?.serviceType;
     if (st) return mapServiceType(st);
     return 'Plano não identificado';
-  }, [beneficiary?.serviceType, data.me?.user]);
+  }, [planDefinition?.name, data.me?.user, beneficiary?.serviceType]);
+
+  const planDescription = planDefinition?.description || '';
+  const planCurrentValue = planDefinition?.value ?? null;
+
 
   const planPaymentType = beneficiary?.paymentType || data.me?.user?.paymentType || '—';
 
@@ -207,6 +252,12 @@ export default function AssinanteDashboard() {
         <div className="rounded-3xl border border-white/70 bg-white/90 p-5 shadow-sm">
           <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">Status do plano</p>
           <h2 className="mt-2 text-2xl font-semibold text-zinc-900">{planName}</h2>
+          {planDescription && (
+            <p className="mt-1 text-xs text-zinc-500">{planDescription}</p>
+          )}
+          {planCurrentValue !== null && (
+            <p className="mt-2 text-xs text-emerald-600">Valor mensal: {formatCurrency(planCurrentValue)}</p>
+          )}
           <p className="mt-4 inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50/80 px-3 py-1 text-xs font-semibold text-emerald-700">
             <span>{beneficiaryLoading || loading ? 'Atualizando…' : status}</span>
           </p>
@@ -218,6 +269,23 @@ export default function AssinanteDashboard() {
             Forma de pagamento:{' '}
             <span className="font-semibold text-emerald-700">{planPaymentType}</span>
           </p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            {isPlanActive ? (
+              <button
+                type="button"
+                onClick={() => setShowPlanChange(true)}
+                className="rounded-full bg-emerald-600 px-4 py-2 text-xs font-semibold text-white shadow transition hover:bg-emerald-700"
+              >
+                Alterar plano
+              </button>
+            ) : null}
+            <Link
+              href="/assinante/faturas"
+              className="rounded-full border border-emerald-200 px-4 py-2 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-50"
+            >
+              Ver faturas
+            </Link>
+          </div>
           {beneficiaryError ? (
             <p className="mt-2 text-xs text-red-600">{beneficiaryError}</p>
           ) : planSpecialties.length ? (
@@ -356,6 +424,17 @@ export default function AssinanteDashboard() {
 
       {error && <p className="text-sm text-red-600">{error}</p>}
       {loading && <p className="text-sm text-zinc-500">Carregando dados atualizados…</p>}
+
+      <PlanChangeDialog
+        open={showPlanChange}
+        onClose={() => setShowPlanChange(false)}
+        token={token}
+        mode="self"
+        onSuccess={() => {
+          void loadSnapshot();
+          setShowPlanChange(false);
+        }}
+      />
     </div>
   );
 }

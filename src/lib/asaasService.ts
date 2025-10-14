@@ -33,9 +33,27 @@ export type AsaasSubscription = {
   cycle?: string;
   nextDueDate?: string;
   billingType?: string;
+  creditCardToken?: string | null;
+  creditCard?: unknown;
   endDate?: string | null;
   paymentLink?: string | null;
 };
+
+export const ASAAS_PAID_STATUSES = new Set([
+  'CONFIRMED',
+  'RECEIVED',
+  'RECEIVED_IN_CASH',
+  'RECEIVED_PIX',
+  'RECEIVED_BANK',
+]);
+
+export const ASAAS_PENDING_STATUSES = new Set([
+  'PENDING',
+  'OVERDUE',
+  'AWAITING_RISK_ANALYSIS',
+  'AWAITING_CHARGEBACK_REVERSAL',
+  'AWAITING_PAYMENT',
+]);
 
 export type AsaasPaymentSummary = {
   id: string;
@@ -139,6 +157,26 @@ export async function listAsaasPaymentsByCustomer(
 export async function getAsaasPayment(paymentId: string) {
   const { data } = await asaas.get(`/payments/${paymentId}`);
   return data as AsaasPaymentSummary;
+}
+
+export async function getAsaasSubscription(subscriptionId: string) {
+  const { data } = await asaas.get<AsaasSubscription>(`/subscriptions/${subscriptionId}`);
+  return data;
+}
+
+export type UpdateSubscriptionPayload = Partial<
+  Pick<AsaasSubscription, 'value' | 'description' | 'nextDueDate' | 'billingType' | 'cycle' | 'status' | 'creditCardToken'>
+> & {
+  updatePendingPayments?: boolean;
+  creditCard?: null;
+};
+
+export async function updateAsaasSubscription(
+  subscriptionId: string,
+  payload: UpdateSubscriptionPayload,
+) {
+  const { data } = await asaas.put(`/subscriptions/${subscriptionId}`, payload);
+  return data as AsaasSubscription;
 }
 
 export async function findCustomerByCpf(cpf: string) {
