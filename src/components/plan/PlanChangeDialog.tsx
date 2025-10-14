@@ -71,75 +71,27 @@ export default function PlanChangeDialog({
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  const selectedPlan = useMemo(() => plans.find((plan) => plan.id === selectedPlanId) || null, [plans, selectedPlanId]);
-  const currentPlanValue = status?.currentPlanValue ?? 0;
-  const priceDiff = useMemo(() => {
-    if (!selectedPlan) return 0;
-    return selectedPlan.value - currentPlanValue;
-  }, [selectedPlan, currentPlanValue]);
-  const priceDiffLabel = useMemo(() => {
-    if (!selectedPlan) return '';
-    if (!status) return '';
-    if (!status.currentPlanValue) {
-      return `Novo valor mensal: ${formatCurrency(selectedPlan.value)}`;
-    }
-    if (priceDiff === 0) {
-      return 'O valor mensal permanece o mesmo.';
-    }
-    const difference = formatCurrency(Math.abs(priceDiff));
-    return priceDiff > 0
-      ? `Acréscimo mensal de ${difference}.`
-      : `Redução mensal de ${difference}.`;
-  }, [selectedPlan, status, priceDiff]);
-
-  const isSamePlan = useMemo(() => {
-    if (!status || !selectedPlanId) return false;
-    const candidateIds = [status.currentPlanId, status.currentPlanServiceType]
-      .filter(Boolean)
-      .map((value) => String(value).toUpperCase());
-    const normalizedSelection = selectedPlanId.toUpperCase();
-    return candidateIds.includes(normalizedSelection);
-  }, [status, selectedPlanId]);
-
-  const reasonMessage = useMemo(() => {
-    if (!status || status.canChange) return '';
-    switch (status.reason) {
-      case 'no_paid_invoice':
-        return 'É necessário possuir ao menos uma cobrança paga antes de solicitar a troca.';
-      case 'pending_invoices':
-        return 'Existem cobranças pendentes. Regularize-as para liberar a alteração.';
-      case 'subscription_not_found':
-        return 'Não encontramos uma assinatura ativa. Verifique os dados antes de continuar.';
-      case 'asaas_subscription_error':
-        return 'Não foi possível consultar a assinatura na Asaas. Tente novamente em instantes.';
-      case 'asaas_payments_error':
-        return 'Não foi possível consultar as cobranças na Asaas. Tente novamente em instantes.';
-      default:
-        return 'Não foi possível liberar a troca neste momento.';
-    }
-  }, [status]);
-
   const authHeaders = useMemo(() => {
     if (!token) return undefined;
     return { Authorization: `Bearer ${token}` };
   }, [token]);
 
-    useEffect(() => {
+  useEffect(() => {
     if (!open) {
       setStatus(null);
       setPlans([]);
       setSelectedPlanId('');
-      setSuccess('');
       setError('');
+      setSuccess('');
     }
   }, [open]);
 
-useEffect(() => {
+  useEffect(() => {
     if (!open) {
       return;
     }
     if (!authHeaders) {
-      setError('Sessão expirada. Faça login novamente.');
+      setError('Sessao expirada. Faca login novamente.');
       return;
     }
 
@@ -158,26 +110,24 @@ useEffect(() => {
 
         const statusRes = await fetch(
           `/api/plano/alterar/status${params.toString() ? `?${params.toString()}` : ''}`,
-          {
-            headers: { ...authHeaders },
-            signal: controller.signal,
-          },
+          { headers: { ...authHeaders }, signal: controller.signal },
         );
         const statusJson = (await statusRes.json()) as PlanChangeStatus | { error?: string };
         if (!statusRes.ok) {
           throw new Error(
-            (statusJson as { error?: string })?.error || 'Falha ao consultar restrições de troca.',
+            (statusJson as { error?: string })?.error || 'Falha ao consultar restricoes de troca.',
           );
         }
-        setStatus(statusJson as PlanChangeStatus);
+        const typedStatus = statusJson as PlanChangeStatus;
+        setStatus(typedStatus);
         setSelectedPlanId((current) =>
-          current || statusJson.currentPlanId || statusJson.currentPlanServiceType || '',
+          current || typedStatus.currentPlanId || typedStatus.currentPlanServiceType || '',
         );
 
         const plansRes = await fetch('/api/plans', { signal: controller.signal });
         const plansJson = await plansRes.json();
         if (!plansRes.ok || !Array.isArray(plansJson)) {
-          throw new Error('Não foi possível carregar os planos disponíveis.');
+          throw new Error('Nao foi possivel carregar os planos disponiveis.');
         }
         setPlans(
           (plansJson as any[]).map((plan) => ({
@@ -190,7 +140,7 @@ useEffect(() => {
           })),
         );
       } catch (err: any) {
-        if (err.name === 'AbortError') return;
+        if (err?.name === 'AbortError') return;
         setError(err?.message || 'Erro inesperado ao preparar a troca de plano.');
       } finally {
         setLoading(false);
@@ -201,6 +151,77 @@ useEffect(() => {
     return () => controller.abort();
   }, [open, authHeaders, mode, target]);
 
+  const selectedPlan = useMemo(
+    () => plans.find((plan) => plan.id === selectedPlanId) || null,
+    [plans, selectedPlanId],
+  );
+
+  const currentPlanValue = status?.currentPlanValue ?? 0;
+
+  const priceDiff = useMemo(() => {
+    if (!selectedPlan) return 0;
+    return selectedPlan.value - currentPlanValue;
+  }, [selectedPlan, currentPlanValue]);
+
+  const priceDiffLabel = useMemo(() => {
+    if (!selectedPlan || !status) return '';
+    if (!status.currentPlanValue) {
+      return `Novo valor mensal: ${formatCurrency(selectedPlan.value)}`;
+    }
+    if (priceDiff === 0) {
+      return 'O valor mensal permanece o mesmo.';
+    }
+    const difference = formatCurrency(Math.abs(priceDiff));
+    return priceDiff > 0
+      ? `Acrescimo mensal de ${difference}.`
+      : `Reducao mensal de ${difference}.`;
+  }, [selectedPlan, status, priceDiff]);
+
+  const isSamePlan = useMemo(() => {
+    if (!status || !selectedPlanId) return false;
+    const candidateIds = [status.currentPlanId, status.currentPlanServiceType]
+      .filter(Boolean)
+      .map((value) => String(value).toUpperCase());
+    const normalizedSelection = selectedPlanId.toUpperCase();
+    return candidateIds.includes(normalizedSelection);
+  }, [status, selectedPlanId]);
+
+  const reasonMessage = useMemo(() => {
+    if (!status || status.canChange) return '';
+    switch (status.reason) {
+      case 'no_paid_invoice':
+        return 'E necessario possuir ao menos uma cobranca paga antes de solicitar a troca.';
+      case 'pending_invoices':
+        return 'Existem cobrancas pendentes. Regularize-as para liberar a alteracao.';
+      case 'subscription_not_found':
+        return 'Nao encontramos uma assinatura ativa. Verifique os dados antes de continuar.';
+      case 'asaas_subscription_error':
+        return 'Nao foi possivel consultar a assinatura na Asaas. Tente novamente em instantes.';
+      case 'asaas_payments_error':
+        return 'Nao foi possivel consultar as cobrancas na Asaas. Tente novamente em instantes.';
+      default:
+        return 'Nao foi possivel liberar a troca neste momento.';
+    }
+  }, [status]);
+
+  const currentPlan = useMemo(() => {
+    if (status?.currentPlanId) {
+      const match = plans.find((plan) => plan.id === status.currentPlanId);
+      if (match) return match;
+    }
+    if (status?.currentPlanName) {
+      return {
+        id: status.currentPlanId || status.currentPlanServiceType || '',
+        name: status.currentPlanName,
+        description: status.currentPlanDescription || '',
+        value: status.currentPlanValue ?? 0,
+        serviceType: status.currentPlanServiceType || '',
+        slug: undefined,
+      } as PlanOption;
+    }
+    return null;
+  }, [plans, status]);
+
   const handleConfirm = async () => {
     if (!status) return;
     if (!selectedPlanId) {
@@ -208,11 +229,11 @@ useEffect(() => {
       return;
     }
     if (!authHeaders) {
-      setError('Sessão expirada. Faça login novamente.');
+      setError('Sessao expirada. Faca login novamente.');
       return;
     }
     if (isSamePlan) {
-      setSuccess('O plano selecionado já está ativo.');
+      setSuccess('O plano selecionado ja esta ativo.');
       return;
     }
 
@@ -246,31 +267,13 @@ useEffect(() => {
       if (planResult && onSuccess) {
         onSuccess(planResult);
       }
-      setSuccess('Plano atualizado com sucesso. As próximas cobranças refletirão o novo valor.');
+      setSuccess('Plano atualizado com sucesso. As proximas cobrancas refletirao o novo valor.');
     } catch (err: any) {
       setError(err?.message || 'Erro inesperado ao atualizar o plano.');
     } finally {
       setSubmitting(false);
     }
   };
-
-  const currentPlan = useMemo(() => {
-    if (status?.currentPlanId) {
-      const match = plans.find((plan) => plan.id === status.currentPlanId);
-      if (match) return match;
-    }
-    if (status?.currentPlanName) {
-      return {
-        id: status.currentPlanId || status.currentPlanServiceType || '',
-        name: status.currentPlanName,
-        description: status.currentPlanDescription || '',
-        value: status.currentPlanValue ?? 0,
-        serviceType: status.currentPlanServiceType || '',
-        slug: undefined,
-      } as PlanOption;
-    }
-    return null;
-  }, [plans, status?.currentPlanId, status?.currentPlanName, status?.currentPlanDescription, status?.currentPlanServiceType, status?.currentPlanValue]);
 
   if (!open) return null;
 
@@ -280,10 +283,10 @@ useEffect(() => {
         <div className="flex items-start justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold text-zinc-900">
-              {mode === 'admin' ? 'Alterar plano do beneficiário' : 'Alterar meu plano'}
+              {mode === 'admin' ? 'Alterar plano do beneficiario' : 'Alterar meu plano'}
             </h2>
             <p className="text-sm text-zinc-600">
-              Escolha o novo plano desejado. A mudança ocorrerá nas próximas cobranças confirmadas.
+              Escolha o novo plano desejado. A mudanca ocorrera nas proximas cobrancas confirmadas.
             </p>
           </div>
           <button
@@ -295,7 +298,7 @@ useEffect(() => {
           </button>
         </div>
 
-        {loading && <p className="mt-4 text-sm text-zinc-500">Carregando opções...</p>}
+        {loading && <p className="mt-4 text-sm text-zinc-500">Carregando opcoes...</p>}
         {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
         {success && <p className="mt-4 text-sm text-emerald-600">{success}</p>}
 
@@ -303,12 +306,8 @@ useEffect(() => {
           <div className="mt-4 space-y-4">
             {!status.canChange && !loading && (
               <div className="rounded-2xl border border-amber-200 bg-amber-50/80 p-4 text-sm text-amber-700">
-                <p className="font-semibold">Troca indisponível no momento</p>
-                <p className="mt-1 text-xs text-amber-600">
-                  {status.reason === 'no_paid_invoice'
-                    ? 'É necessário possuir ao menos uma cobrança paga antes de solicitar a troca.'
-                    : 'Existem cobranças pendentes. Regularize-as para liberar a alteração.'}
-                </p>
+                <p className="font-semibold">Troca indisponivel no momento</p>
+                {reasonMessage && <p className="mt-1 text-xs text-amber-600">{reasonMessage}</p>}
                 {status.blockingPayments.length > 0 && (
                   <ul className="mt-2 space-y-1 text-xs">
                     {status.blockingPayments.map((invoice) => (
@@ -320,38 +319,25 @@ useEffect(() => {
                   </ul>
                 )}
               </div>
-              {status && selectedPlan && (
-                <div className="rounded-2xl border border-zinc-200 bg-zinc-50/80 p-4 text-xs text-zinc-600">
-                  <p className="font-semibold text-zinc-700">Resumo financeiro</p>
-                  <p className="mt-1">Valor atual: {formatCurrency(status.currentPlanValue ?? 0)}</p>
-                  <p className="mt-1">Novo valor: {formatCurrency(selectedPlan.value)}</p>
-                  <p className="mt-1 text-emerald-700">{priceDiffLabel}</p>
-                </div>
-              )}
             )}
-{currentPlan && (
+
+            {currentPlan && (
               <div className="rounded-3xl border border-emerald-100 bg-emerald-50/70 p-4 text-sm text-emerald-700">
-                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">
-                  Plano atual
-                </p>
-                <p className="mt-1 text-base font-semibold text-emerald-800">
-                  {currentPlan.name}
-                </p>
+                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">Plano atual</p>
+                <p className="mt-1 text-base font-semibold text-emerald-800">{currentPlan.name}</p>
                 {status?.currentPlanDescription && (
                   <p className="mt-1 text-xs text-emerald-600">{status.currentPlanDescription}</p>
                 )}
                 {status?.currentPlanServiceType && (
                   <p className="mt-1 text-[10px] uppercase tracking-wide text-emerald-500">
-                    Código Rapidoc: {status.currentPlanServiceType}
+                    Codigo Rapidoc: {status.currentPlanServiceType}
                   </p>
                 )}
                 <p className="mt-2 text-xs text-emerald-600">
                   Valor atual: {formatCurrency(status?.currentPlanValue ?? currentPlan.value)}
                 </p>
                 {status?.nextDueDate && (
-                  <p className="mt-1 text-xs text-emerald-600">
-                    Próximo vencimento: {status.nextDueDate}
-                  </p>
+                  <p className="mt-1 text-xs text-emerald-600">Proximo vencimento: {status.nextDueDate}</p>
                 )}
               </div>
             )}
@@ -361,20 +347,21 @@ useEffect(() => {
               <div className="grid gap-3 sm:grid-cols-2">
                 {plans.map((plan) => {
                   const selected = selectedPlanId === plan.id;
+                  const disabled = (status && !status.canChange) || submitting;
                   return (
                     <button
                       key={plan.id}
                       type="button"
                       onClick={() => setSelectedPlanId(plan.id)}
-                      disabled={(status && !status.canChange) || submitting}
+                      disabled={disabled}
                       className={`flex h-full flex-col rounded-2xl border p-4 text-left transition ${
                         selected
                           ? 'border-emerald-400 bg-emerald-50/90 shadow-sm'
                           : 'border-zinc-200 bg-white/90 hover:border-emerald-200 hover:bg-emerald-50/60'
-                      }`}
+                      } ${disabled ? 'opacity-60' : ''}`}
                     >
                       <span className="text-sm font-semibold text-emerald-800">{plan.name}</span>
-                      <span className="mt-2 text-xs text-zinc-500">{plan.description || 'Plano sem descrição cadastrada.'}</span>
+                      <span className="mt-2 text-xs text-zinc-500">{plan.description || 'Plano sem descricao cadastrada.'}</span>
                       <span className="mt-4 text-base font-semibold text-emerald-700">
                         {formatCurrency(plan.value)}
                       </span>
@@ -388,9 +375,7 @@ useEffect(() => {
                   <p className="font-semibold text-zinc-700">Resumo financeiro</p>
                   <p className="mt-1">Valor atual: {formatCurrency(status.currentPlanValue ?? 0)}</p>
                   <p className="mt-1">Novo valor: {formatCurrency(selectedPlan.value)}</p>
-                  {priceDiffLabel && (
-                    <p className="mt-1 text-emerald-700">{priceDiffLabel}</p>
-                  )}
+                  {priceDiffLabel && <p className="mt-1 text-emerald-700">{priceDiffLabel}</p>}
                 </div>
               )}
             </div>
@@ -418,4 +403,3 @@ useEffect(() => {
     </div>
   );
 }
-

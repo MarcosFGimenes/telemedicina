@@ -9,6 +9,7 @@ const emptyForm = {
   name: '',
   description: '',
   value: '',
+  maxDependents: '',
   slug: '',
 };
 
@@ -106,6 +107,7 @@ export default function AdminPlansPage() {
       name: form.name.trim(),
       description: form.description.trim(),
       value: Number(form.value.replace(',', '.')),
+      maxDependents: Number(form.maxDependents || '0'),
     };
 
     if (!payload.id) {
@@ -120,6 +122,16 @@ export default function AdminPlansPage() {
 
     if (!Number.isFinite(payload.value) || payload.value <= 0) {
       setError('Informe um valor válido maior que zero.');
+      return;
+    }
+
+    if (!Number.isFinite(payload.maxDependents) || payload.maxDependents < 0) {
+      setError('Informe um número válido de dependentes.');
+      return;
+    }
+
+    if (!Number.isInteger(payload.maxDependents)) {
+      setError('A quantidade de dependentes deve ser um número inteiro.');
       return;
     }
 
@@ -153,6 +165,7 @@ export default function AdminPlansPage() {
       name: plan.name,
       description: plan.description,
       value: String(plan.value.toFixed(2)),
+      maxDependents: String(plan.maxDependents ?? ''),
       slug: plan.slug,
     });
     setSuccess('');
@@ -253,6 +266,20 @@ export default function AdminPlansPage() {
             />
           </div>
 
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-zinc-700">Quantidade máxima de dependentes</label>
+            <input
+              className="w-full rounded-lg border border-zinc-200 px-3 py-2"
+              value={form.maxDependents}
+              onChange={(event) => handleChange('maxDependents', event.target.value.replace(/[^0-9]/g, ''))}
+              placeholder="0"
+              inputMode="numeric"
+            />
+            <p className="text-xs text-zinc-500">
+              Define o limite de dependentes que podem ser cadastrados por beneficiário neste plano.
+            </p>
+          </div>
+
           <div className="flex items-end gap-3">
             <button
               type="submit"
@@ -309,6 +336,7 @@ export default function AdminPlansPage() {
                   <th className="px-4 py-2">Nome</th>
                   <th className="px-4 py-2">URL de assinatura</th>
                   <th className="px-4 py-2">Descricao</th>
+                  <th className="px-4 py-2 text-right">Dependentes</th>
                   <th className="px-4 py-2 text-right">Valor</th>
                   <th className="px-4 py-2 text-right">Acoes</th>
                 </tr>
@@ -341,6 +369,9 @@ export default function AdminPlansPage() {
                         )}
                       </td>
                       <td className="px-4 py-3 text-zinc-500">{plan.description || '...'}</td>
+                      <td className="px-4 py-3 text-right text-zinc-500">
+                        {plan.maxDependents ?? 0}
+                      </td>
                       <td className="px-4 py-3 text-right font-medium text-zinc-700">
                         {currency.format(plan.value)}
                       </td>

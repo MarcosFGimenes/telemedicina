@@ -126,7 +126,7 @@ export async function GET(req: NextRequest) {
         {
           canChange: false,
           reason: 'subscription_not_found',
-          message: 'Não encontramos uma assinatura ativa para este beneficiário.',
+          message: 'Nao encontramos uma assinatura ativa para este beneficiario.',
         },
         { status: 404 },
       );
@@ -141,7 +141,7 @@ export async function GET(req: NextRequest) {
         {
           canChange: false,
           reason: 'asaas_subscription_error',
-          message: 'Não foi possível consultar a assinatura na Asaas.',
+          message: 'Nao foi possivel consultar a assinatura na Asaas.',
         },
         { status: 502 },
       );
@@ -156,7 +156,7 @@ export async function GET(req: NextRequest) {
         {
           canChange: false,
           reason: 'asaas_payments_error',
-          message: 'Não foi possível consultar as cobranças na Asaas.',
+          message: 'Nao foi possivel consultar as cobrancas na Asaas.',
         },
         { status: 502 },
       );
@@ -169,17 +169,14 @@ export async function GET(req: NextRequest) {
     const subscriptionBillingType = subscription?.billingType
       ? String(subscription.billingType).toUpperCase()
       : null;
-    const storedPaymentType = typeof userData.paymentType === 'string'
-      ? String(userData.paymentType).toUpperCase()
-      : null;
+    const storedPaymentType =
+      typeof userData.paymentType === 'string'
+        ? String(userData.paymentType).toUpperCase()
+        : null;
 
     return NextResponse.json({
       canChange,
-      reason: canChange
-        ? null
-        : !hasPaid
-        ? 'no_paid_invoice'
-        : 'pending_invoices',
+      reason: canChange ? null : !hasPaid ? 'no_paid_invoice' : 'pending_invoices',
       hasPaidInvoice: hasPaid,
       blockingPayments,
       subscriptionId,
