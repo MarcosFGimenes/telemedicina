@@ -30,17 +30,17 @@ const paymentOptions: { id: BillingType; title: string; description: string }[] 
   {
     id: 'PIX',
     title: 'Pix',
-    description: 'Pagamentos instantâneos com QR Code e confirmação automática.',
+    description: 'Pagamentos instantaneos com QR Code e confirmacao automatica.',
   },
   {
     id: 'BOLETO',
-    title: 'Boleto bancário',
-    description: 'Receba os boletos no e-mail cadastrado com vencimento ajustável.',
+    title: 'Boleto bancario',
+    description: 'Receba os boletos no e-mail cadastrado com vencimento ajustavel.',
   },
   {
     id: 'CREDIT_CARD',
-    title: 'Cartão de crédito',
-    description: 'Cobrança automática no cartão cadastrado. Requer token ativo.',
+    title: 'Cartao de credito',
+    description: 'Cobranca automatica no cartao cadastrado. Requer token ativo.',
   },
 ];
 
@@ -78,7 +78,7 @@ export default function PaymentMethodDialog({
       return;
     }
     if (!authHeaders) {
-      setError('Sessão expirada. Faça login novamente.');
+      setError('Sessao expirada. Faca login novamente.');
       return;
     }
 
@@ -100,13 +100,13 @@ export default function PaymentMethodDialog({
         );
         const json = (await res.json()) as PaymentStatusResponse | { error: string };
         if (!res.ok) {
-          throw new Error((json as { error: string }).error || 'Falha ao consultar restrições.');
+          throw new Error((json as { error: string }).error || 'Falha ao consultar restricoes.');
         }
         const typed = json as PaymentStatusResponse;
         setStatus(typed);
         setSelectedType((current) => current || (typed.currentBillingType ?? ''));
       } catch (err: any) {
-        if (err.name === 'AbortError') return;
+        if (err?.name === 'AbortError') return;
         setError(err?.message || 'Erro inesperado ao consultar a assinatura.');
       } finally {
         setLoading(false);
@@ -131,17 +131,17 @@ export default function PaymentMethodDialog({
     if (!status || status.canChange) return '';
     switch (status.reason) {
       case 'no_paid_invoice':
-        return 'É necessário possuir ao menos uma cobrança paga antes de alterar a forma de pagamento.';
+        return 'E necessario possuir ao menos uma cobranca paga antes de alterar a forma de pagamento.';
       case 'pending_invoices':
-        return 'Existem cobranças pendentes. Regularize-as antes de continuar.';
+        return 'Existem cobrancas pendentes. Regularize-as antes de continuar.';
       case 'subscription_not_found':
-        return 'Não encontramos uma assinatura ativa. Verifique os dados e tente novamente ou contate o suporte.';
+        return 'Nao encontramos uma assinatura ativa. Verifique os dados e tente novamente ou contate o suporte.';
       case 'asaas_subscription_error':
-        return 'Não foi possível consultar a assinatura na Asaas. Tente mais tarde.';
+        return 'Nao foi possivel consultar a assinatura na Asaas. Tente mais tarde.';
       case 'asaas_payments_error':
-        return 'Não foi possível consultar as cobranças na Asaas. Tente mais tarde.';
+        return 'Nao foi possivel consultar as cobrancas na Asaas. Tente mais tarde.';
       default:
-        return 'Não foi possível liberar a troca neste momento.';
+        return 'Nao foi possivel liberar a troca neste momento.';
     }
   }, [status]);
 
@@ -158,15 +158,15 @@ export default function PaymentMethodDialog({
       return;
     }
     if (!authHeaders) {
-      setError('Sessão expirada. Faça login novamente.');
+      setError('Sessao expirada. Faca login novamente.');
       return;
     }
     if (isSameBilling) {
-      setSuccess('A forma de pagamento selecionada já está ativa.');
+      setSuccess('A forma de pagamento selecionada ja esta ativa.');
       return;
     }
     if (selectedType === 'CREDIT_CARD' && disableCreditCard) {
-      setError('Para migrar para cartão de crédito, contate o suporte.');
+      setError('Para migrar para cartao de credito, contate o suporte.');
       return;
     }
 
@@ -217,9 +217,7 @@ export default function PaymentMethodDialog({
             <h2 className="text-lg font-semibold text-zinc-900">
               {mode === 'admin' ? 'Alterar forma de pagamento' : 'Minha forma de pagamento'}
             </h2>
-            <p className="text-sm text-zinc-600">
-              Defina como você prefere receber suas próximas cobranças.
-            </p>
+            <p className="text-sm text-zinc-600">Defina como voce prefere receber suas proximas cobrancas.</p>
           </div>
           <button
             type="button"
@@ -230,7 +228,7 @@ export default function PaymentMethodDialog({
           </button>
         </div>
 
-        {loading && <p className="mt-4 text-sm text-zinc-500">Carregando opções...</p>}
+        {loading && <p className="mt-4 text-sm text-zinc-500">Carregando opcoes...</p>}
         {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
         {success && <p className="mt-4 text-sm text-emerald-600">{success}</p>}
 
@@ -238,16 +236,14 @@ export default function PaymentMethodDialog({
           <div className="mt-4 space-y-4">
             {!status.canChange && !loading && (
               <div className="rounded-2xl border border-amber-200 bg-amber-50/80 p-4 text-sm text-amber-700">
-                <p className="font-semibold">Troca indisponível no momento</p>
-                {reasonMessage && (
-                  <p className="mt-1 text-xs text-amber-600">{reasonMessage}</p>
-                )}
+                <p className="font-semibold">Troca indisponivel no momento</p>
+                {reasonMessage && <p className="mt-1 text-xs text-amber-600">{reasonMessage}</p>}
                 {status.blockingPayments.length > 0 && (
                   <ul className="mt-2 space-y-1 text-xs">
                     {status.blockingPayments.map((invoice) => (
                       <li key={invoice.id}>
-                        {invoice.id} · {invoice.status}
-                        {invoice.dueDate ? ` · vencimento ${invoice.dueDate}` : ''}
+                        {invoice.id} Â· {invoice.status}
+                        {invoice.dueDate ? ` Â· vencimento ${invoice.dueDate}` : ''}
                       </li>
                     ))}
                   </ul>
@@ -280,8 +276,8 @@ export default function PaymentMethodDialog({
 
             <div className="rounded-2xl border border-zinc-200 bg-zinc-50/80 p-4 text-xs text-zinc-600">
               <p className="font-semibold text-zinc-700">Resumo</p>
-              <p className="mt-1">Forma atual: {status.currentBillingType || 'Não informado'}</p>
-              <p className="mt-1">Nova forma: {selectedType || 'Selecione uma opção'}</p>
+              <p className="mt-1">Forma atual: {status.currentBillingType || 'Nao informado'}</p>
+              <p className="mt-1">Nova forma: {selectedType || 'Selecione uma opcao'}</p>
             </div>
           </div>
         )}

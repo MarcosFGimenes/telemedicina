@@ -132,7 +132,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           error: 'subscription_not_found',
-          message: 'Não foi possível localizar uma assinatura ativa.',
+          message: 'Nao foi possivel localizar uma assinatura ativa.',
         },
         { status: 404 },
       );
@@ -146,7 +146,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           error: 'asaas_subscription_error',
-          message: 'Não foi possível consultar a assinatura na Asaas.',
+          message: 'Nao foi possivel consultar a assinatura na Asaas.',
         },
         { status: 502 },
       );
@@ -160,7 +160,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           error: 'asaas_payments_error',
-          message: 'Não foi possível consultar as cobranças na Asaas.',
+          message: 'Nao foi possivel consultar as cobrancas na Asaas.',
         },
         { status: 502 },
       );
@@ -173,7 +173,7 @@ export async function POST(req: NextRequest) {
         {
           error: 'no_paid_invoice',
           message:
-            'É necessário possuir ao menos uma cobrança paga antes de alterar a forma de pagamento.',
+            'E necessario possuir ao menos uma cobranca paga antes de alterar a forma de pagamento.',
         },
         { status: 409 },
       );
@@ -182,7 +182,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           error: 'pending_invoices',
-          message: 'Existem cobranças pendentes. Regularize-as para liberar a alteração.',
+          message: 'Existem cobrancas pendentes. Regularize-as para liberar a alteracao.',
           blockingInvoices,
         },
         { status: 409 },
@@ -199,7 +199,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         ok: true,
         unchanged: true,
-        message: 'A forma de pagamento selecionada já está ativa.',
+        message: 'A forma de pagamento selecionada ja esta ativa.',
         billingType: currentBillingType,
       });
     }
@@ -208,7 +208,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           error: 'credit_card_not_supported',
-          message: 'Para ativar cobranças por cartão, entre em contato com o suporte.',
+          message: 'Para ativar cobrancas por cartao, entre em contato com o suporte.',
         },
         { status: 409 },
       );
@@ -226,7 +226,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           error: 'asaas_update_failed',
-          message: 'Não foi possível atualizar a assinatura na Asaas.',
+          message: 'Nao foi possivel atualizar a assinatura na Asaas.',
         },
         { status: 502 },
       );
@@ -261,7 +261,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       ok: true,
       billingType: newBillingTypeRaw,
-      message: `Forma de pagamento atualizada com sucesso. As próximas cobranças virão via ${newBillingTypeRaw}.`,
+      message: `Forma de pagamento atualizada com sucesso. As proximas cobrancas virao via ${newBillingTypeRaw}.`,
     });
   } catch (error: any) {
     const statusCode =
