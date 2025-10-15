@@ -62,7 +62,10 @@ export const buildBeneficiaryPayload = ({
     city: user?.city ?? customer?.cityName ?? customer?.city ?? undefined,
     state: user?.state ?? customer?.state ?? undefined,
     paymentType: 'S',
-    serviceType: 'GS',
+    serviceType: (() => {
+      const raw = (user?.serviceType ?? '').toString().trim().toUpperCase();
+      return raw || 'GS';
+    })(),
     holder: onlyDigits(user?.holder ?? customer?.cpfCnpj ?? cpfDigits) || undefined,
     general: user?.general?.trim() || `asaasPayment:${customer?.id ?? ''}`,
   };

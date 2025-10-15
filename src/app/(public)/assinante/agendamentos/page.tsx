@@ -1,11 +1,22 @@
 'use client';
 
 import axios from 'axios';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuthContext } from '@/components/auth/AuthProvider';
 
 type Specialty = { id?: string; uuid?: string; name?: string; [key: string]: unknown };
 type AppointmentResp = { uuid?: string; id?: string; [key: string]: unknown };
+type AppointmentListItem = {
+  uuid: string;
+  scheduledAt?: string;
+  dateLabel?: string;
+  timeLabel?: string;
+  status?: string;
+  specialtyName?: string;
+  professionalName?: string;
+  meetingUrl?: string;
+  raw?: Record<string, unknown>;
+};
 
 type SlotOption = {
   id: string;
@@ -46,6 +57,205 @@ const stringFrom = (value: unknown): string | undefined => {
     return String(value);
   }
   return undefined;
+};
+
+const firstNonEmpty = (...values: (string | null | undefined)[]): string | undefined => {
+  for (const value of values) {
+    if (!value) continue;
+    const trimmed = value.trim();
+    if (trimmed) return trimmed;
+  }
+  return undefined;
+};
+
+const sanitizeTimeFragment = (value?: string | null): string | undefined => {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const firstSegment = trimmed.split(/[\s-–—]+/)[0];
+  const segments = firstSegment
+    .split(':')
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+  if (!segments.length) {
+    return undefined;
+  }
+  if (segments.length === 1) {
+    const hours = segments[0].padStart(2, '0');
+    return `${hours}:00:00`;
+  }
+  if (segments.length === 2) {
+    const [hour, minute] = segments;
+    return `${hour.padStart(2, '0')}:${minute.padStart(2, '0')}:00`;
+  }
+  const [hour, minute = '00', second = '00'] = segments;
+  return `${hour.padStart(2, '0')}:${minute.padStart(2, '0')}:${second.padStart(2, '0')}`;
+};
+
+const composeDateTimeFromParts = (
+  datePart?: string | null,
+  timePart?: string | null,
+): string | undefined => {
+  if (!datePart) return undefined;
+  const trimmedDate = datePart.trim();
+  if (!trimmedDate) return undefined;
+  if (trimmedDate.includes('T')) {
+    return trimmedDate;
+  }
+  const sanitizedTime = timePart && timePart.trim() ? timePart.trim() : undefined;
+  const dmyMatch = trimmedDate.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (dmyMatch) {
+    const [, dd, mm, yyyy] = dmyMatch;
+    const base = `${yyyy}-${mm}-${dd}`;
+    if (sanitizedTime) {
+      return `${base}T${sanitizedTime}`;
+    }
+    return `${base}T00:00:00`;
+  }
+  const ymdMatch = trimmedDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (ymdMatch) {
+    const base = `${ymdMatch[1]}-${ymdMatch[2]}-${ymdMatch[3]}`;
+    if (sanitizedTime) {
+      return `${base}T${sanitizedTime}`;
+    }
+    return `${base}T00:00:00`;
+  }
+  if (sanitizedTime) {
+    return `${trimmedDate} ${sanitizedTime}`;
+  }
+  return trimmedDate;
+};
+
+const parseAppointments = (raw: unknown): AppointmentListItem[] => {
+  const containers: Record<string, unknown>[] = [];
+  const queue: unknown[] = [raw];
+  const keysToExplore = ['data', 'appointments', 'items', 'results'];
+
+  while (queue.length) {
+    const current = queue.shift();
+    if (Array.isArray(current)) {
+      current.forEach((item) => queue.push(item));
+      continue;
+    }
+
+    const record = asRecord(current);
+    if (!record) continue;
+
+    let forwarded = false;
+    keysToExplore.forEach((key) => {
+      if (Object.prototype.hasOwnProperty.call(record, key)) {
+        queue.push(record[key]);
+        forwarded = true;
+      }
+    });
+
+    if (!forwarded) {
+      containers.push(record);
+    }
+  }
+
+  if (!containers.length) {
+    return [];
+  }
+
+  return containers
+    .map((record) => {
+      const uuid = firstNonEmpty(stringFrom(record['uuid']), stringFrom(record['id']));
+      if (!uuid) return null;
+
+      const rawDate = firstNonEmpty(
+        stringFrom(record['scheduledDate']),
+        stringFrom(record['scheduleDate']),
+        stringFrom(record['date']),
+        stringFrom(record['day']),
+      );
+      const rawTime = firstNonEmpty(
+        stringFrom(record['scheduledTime']),
+        stringFrom(record['time']),
+        stringFrom(record['hour']),
+        stringFrom(record['from']),
+        stringFrom(record['startTime']),
+      );
+      const normalizedTime = sanitizeTimeFragment(rawTime);
+      const scheduledAt = firstNonEmpty(
+        stringFrom(record['scheduledAt']),
+        stringFrom(record['scheduleDateTime']),
+        stringFrom(record['scheduleDate']),
+        stringFrom(record['scheduledDateTime']),
+        stringFrom(record['scheduledDatetime']),
+        stringFrom(record['startAt']),
+        stringFrom(record['startDateTime']),
+        stringFrom(record['start']),
+        stringFrom(record['dateTime']),
+        composeDateTimeFromParts(rawDate, normalizedTime),
+      );
+
+      const specialty = asRecord(record['specialty']);
+      const professional =
+        asRecord(record['professional']) || asRecord(record['doctor']) || asRecord(record['physician']);
+
+      const specialtyName = firstNonEmpty(
+        stringFrom(record['specialtyName']),
+        stringFrom(specialty?.['name']),
+        stringFrom(specialty?.['description']),
+      );
+      const professionalName = firstNonEmpty(
+        stringFrom(record['professionalName']),
+        stringFrom(professional?.['name']),
+      );
+      const meetingUrl = firstNonEmpty(
+        stringFrom(record['meetingUrl']),
+        stringFrom(record['beneficiaryUrl']),
+        stringFrom(record['url']),
+        stringFrom(record['redirectUrl']),
+      );
+      const status = firstNonEmpty(stringFrom(record['status']), stringFrom(record['situation']));
+
+      return {
+        uuid,
+        scheduledAt,
+        dateLabel: rawDate,
+        timeLabel: rawTime,
+        status,
+        specialtyName,
+        professionalName,
+        meetingUrl,
+        raw: record,
+      } as AppointmentListItem;
+    })
+    .filter(Boolean) as AppointmentListItem[];
+};
+
+const appointmentDateFrom = (item: AppointmentListItem): Date | null => {
+  const candidate = firstNonEmpty(
+    item.scheduledAt,
+    composeDateTimeFromParts(item.dateLabel, sanitizeTimeFragment(item.timeLabel)),
+  );
+  if (!candidate) return null;
+  const date = new Date(candidate);
+  if (Number.isNaN(date.getTime())) return null;
+  return date;
+};
+
+const formatAppointmentDateTime = (item: AppointmentListItem): string => {
+  const date = appointmentDateFrom(item);
+  if (date) {
+    try {
+      return new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(date);
+    } catch {
+      // ignore formatting errors and fallback below
+    }
+  }
+  const labelParts = [item.dateLabel, item.timeLabel].filter(Boolean) as string[];
+  if (labelParts.length) {
+    return labelParts.join(' • ');
+  }
+  return item.scheduledAt || '—';
+};
+
+const isCanceledStatus = (value?: string): boolean => {
+  const normalized = (value || '').toUpperCase();
+  return normalized.includes('CANCEL');
 };
 
 const formatDateLabel = (value?: string): string | null => {
@@ -233,6 +443,120 @@ export default function AssinanteAgendamentosPage() {
   const [beneficiarySnapshot, setBeneficiarySnapshot] = useState<Record<string, unknown> | null>(null);
   const [loadingBeneficiarySnapshot, setLoadingBeneficiarySnapshot] = useState(false);
   const [beneficiarySnapshotError, setBeneficiarySnapshotError] = useState('');
+  const [appointments, setAppointments] = useState<AppointmentListItem[]>([]);
+  const [appointmentsLoading, setAppointmentsLoading] = useState(false);
+  const [appointmentsError, setAppointmentsError] = useState('');
+  const [appointmentsMessage, setAppointmentsMessage] = useState('');
+  const [cancelingUuid, setCancelingUuid] = useState('');
+
+  const requestAppointments = useCallback(async (uuid: string) => {
+    const { data } = await axios.get(`/api/rapidoc/beneficiaries/${uuid}/appointments`);
+    return parseAppointments(data);
+  }, []);
+
+  useEffect(() => {
+    setAppointmentsMessage('');
+    if (!beneficiaryUuid) {
+      setAppointments([]);
+      setAppointmentsError('');
+      setAppointmentsLoading(false);
+      return;
+    }
+
+    let active = true;
+    const loadAppointments = async () => {
+      try {
+        setAppointmentsLoading(true);
+        setAppointmentsError('');
+        const list = await requestAppointments(beneficiaryUuid);
+        if (!active) return;
+        setAppointments(list);
+      } catch (error: unknown) {
+        if (!active) return;
+        setAppointments([]);
+        setAppointmentsError(messageFromAxiosError(error, 'Falha ao carregar agendamentos.'));
+      } finally {
+        if (active) {
+          setAppointmentsLoading(false);
+        }
+      }
+    };
+
+    void loadAppointments();
+
+    return () => {
+      active = false;
+    };
+  }, [beneficiaryUuid, requestAppointments]);
+
+  const reloadAppointments = useCallback(async () => {
+    setAppointmentsMessage('');
+    if (!beneficiaryUuid) {
+      setAppointments([]);
+      setAppointmentsError('');
+      setAppointmentsLoading(false);
+      return;
+    }
+
+    try {
+      setAppointmentsLoading(true);
+      setAppointmentsError('');
+      const list = await requestAppointments(beneficiaryUuid);
+      setAppointments(list);
+      setAppointmentsMessage('Agendamentos atualizados.');
+    } catch (error: unknown) {
+      setAppointmentsError(messageFromAxiosError(error, 'Falha ao carregar agendamentos.'));
+    } finally {
+      setAppointmentsLoading(false);
+    }
+  }, [beneficiaryUuid, requestAppointments]);
+
+  const upcomingAppointments = useMemo(() => {
+    const now = Date.now();
+    const filtered = appointments.filter((item) => {
+      if (isCanceledStatus(item.status)) {
+        return false;
+      }
+      const date = appointmentDateFrom(item);
+      if (!date) {
+        return true;
+      }
+      return date.getTime() >= now;
+    });
+    const sorted = [...filtered];
+    sorted.sort((a, b) => {
+      const aDate = appointmentDateFrom(a);
+      const bDate = appointmentDateFrom(b);
+      if (aDate && bDate) {
+        return aDate.getTime() - bDate.getTime();
+      }
+      if (aDate) return -1;
+      if (bDate) return 1;
+      return a.uuid.localeCompare(b.uuid);
+    });
+    return sorted;
+  }, [appointments]);
+
+  const cancelAppointment = useCallback(
+    async (uuid: string) => {
+      const trimmed = uuid.trim();
+      if (!trimmed) return;
+      if (!window.confirm('Deseja cancelar este agendamento?')) return;
+      try {
+        setCancelingUuid(trimmed);
+        setAppointmentsError('');
+        setAppointmentsMessage('');
+        await axios.delete(`/api/rapidoc/agendamentos/${trimmed}`);
+        setAppointments((prev) => prev.filter((item) => item.uuid !== trimmed));
+        setAppointmentsMessage('Agendamento cancelado com sucesso.');
+      } catch (error: unknown) {
+        setAppointmentsError(messageFromAxiosError(error, 'Falha ao cancelar o agendamento.'));
+      } finally {
+        setCancelingUuid('');
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     const loadSpecs = async () => {
@@ -681,6 +1005,110 @@ export default function AssinanteAgendamentosPage() {
 
   return (
     <div className="space-y-6">
+      <section className="rounded-3xl border border-white/70 bg-white/90 p-6 shadow-sm">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-zinc-900">Seus agendamentos</h2>
+            <p className="text-sm text-zinc-600">Consulte e gerencie suas consultas futuras registradas na Rapidoc.</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <button
+              type="button"
+              onClick={() => void reloadAppointments()}
+              disabled={appointmentsLoading || !beneficiaryUuid}
+              className="rounded-full border border-emerald-600 px-4 py-1.5 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50 disabled:opacity-60"
+            >
+              Recarregar
+            </button>
+          </div>
+        </div>
+        {appointmentsError && <p className="mt-3 text-sm text-red-600">{appointmentsError}</p>}
+        {appointmentsMessage && <p className="mt-3 text-sm text-emerald-600">{appointmentsMessage}</p>}
+        {!beneficiaryUuid ? (
+          <p className="mt-4 text-sm text-zinc-500">Selecione um beneficiário para visualizar os agendamentos futuros.</p>
+        ) : (
+          <>
+            <p className="mt-3 text-xs text-zinc-500">
+              {appointmentsLoading
+                ? 'Sincronizando com Rapidoc…'
+                : upcomingAppointments.length === 1
+                ? '1 agendamento futuro encontrado.'
+                : `${upcomingAppointments.length} agendamentos futuros encontrados.`}
+            </p>
+            <div className="mt-4 space-y-3">
+              {appointmentsLoading && <p className="text-sm text-zinc-500">Carregando agendamentos…</p>}
+              {!appointmentsLoading && !upcomingAppointments.length && (
+                <p className="text-sm text-zinc-500">Nenhum agendamento futuro disponível no momento.</p>
+              )}
+              {!appointmentsLoading &&
+                upcomingAppointments.map((appointment) => {
+                  const busy = cancelingUuid === appointment.uuid;
+                  const canceled = isCanceledStatus(appointment.status);
+                  const statusLabel = (appointment.status || '').toUpperCase();
+                  return (
+                    <article
+                      key={appointment.uuid}
+                      className="rounded-2xl border border-white/70 bg-white/80 p-4 shadow-sm"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                        <span className="font-mono text-[11px] text-emerald-700">{appointment.uuid}</span>
+                        {statusLabel && (
+                          <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+                            {statusLabel}
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-3 grid gap-2 text-sm text-zinc-600 sm:grid-cols-2">
+                        <p>
+                          <span className="font-semibold text-zinc-800">Data e horário:</span>{' '}
+                          {formatAppointmentDateTime(appointment)}
+                        </p>
+                        <p>
+                          <span className="font-semibold text-zinc-800">Especialidade:</span>{' '}
+                          {appointment.specialtyName || '—'}
+                        </p>
+                        {appointment.professionalName && (
+                          <p>
+                            <span className="font-semibold text-zinc-800">Profissional:</span>{' '}
+                            {appointment.professionalName}
+                          </p>
+                        )}
+                      </div>
+                      <div className="mt-4 flex flex-wrap items-center gap-2 text-xs">
+                        <button
+                          type="button"
+                          onClick={() => cancelAppointment(appointment.uuid)}
+                          disabled={busy || canceled}
+                          className="rounded-full border border-red-600 px-4 py-1.5 text-sm font-semibold text-red-600 transition hover:bg-red-50 disabled:opacity-60"
+                        >
+                          {busy ? 'Cancelando…' : 'Cancelar agendamento'}
+                        </button>
+                        {appointment.meetingUrl && (
+                          <a
+                            href={appointment.meetingUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1 rounded-full border border-emerald-600 px-4 py-1.5 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50"
+                          >
+                            Abrir link da consulta
+                          </a>
+                        )}
+                      </div>
+                      {appointment.raw && (
+                        <details className="mt-3 text-xs text-zinc-500">
+                          <summary className="cursor-pointer text-emerald-700">Ver detalhes técnicos</summary>
+                          <pre className="mt-2 whitespace-pre-wrap break-all text-[11px] leading-relaxed">
+                            {JSON.stringify(appointment.raw, null, 2)}
+                          </pre>
+                        </details>
+                      )}
+                    </article>
+                  );
+                })}
+            </div>
+          </>
+        )}
+      </section>
       <section className="rounded-3xl border border-white/70 bg-white/90 p-6 shadow-sm">
         <h2 className="text-lg font-semibold text-zinc-900">Monte seu atendimento</h2>
         <p className="mt-1 text-sm text-zinc-600">
