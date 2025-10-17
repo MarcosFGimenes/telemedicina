@@ -5,6 +5,7 @@ import { useAuthContext } from '@/components/auth/AuthProvider';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { PlanDefinition } from '@/types/plans';
 import { normalizeBeneficiaryRecord } from '@/utils/beneficiary';
+import { formatCurrency } from '@/utils/format';
 
 type UserDoc = {
   name?: string;
