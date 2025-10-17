@@ -460,9 +460,13 @@ export default function AssinanteAgendamentosPage() {
       } catch (error: unknown) {
         if (!active) return;
         setBeneficiarySnapshot(null);
-        setBeneficiarySnapshotError(
-          messageFromAxiosError(error, 'Falha ao carregar informações do beneficiário na Rapidoc.'),
-        );
+        if (axios.isAxiosError(error) && error.response?.status === 404) {
+          setBeneficiarySnapshotError('');
+        } else {
+          setBeneficiarySnapshotError(
+            messageFromAxiosError(error, 'Falha ao carregar informações do beneficiário na Rapidoc.'),
+          );
+        }
       } finally {
         if (active) {
           setLoadingBeneficiarySnapshot(false);
