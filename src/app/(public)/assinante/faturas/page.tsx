@@ -1,8 +1,9 @@
 'use client';
 
 import { useAuthContext } from '@/components/auth/AuthProvider';
+import PaymentMethodDialog from '@/components/plan/PaymentMethodDialog';
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 type Payment = {
   id: string;
@@ -72,6 +73,7 @@ const statusStyles: Record<string, string> = {
 export default function FaturasPage() {
   const { token } = useAuthContext();
   const [payments, setPayments] = useState<Payment[]>([]);
+  const [userRecord, setUserRecord] = useState<Record<string, unknown> | null>(null);
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
@@ -84,6 +86,11 @@ export default function FaturasPage() {
       const res = await fetch('/api/me', { headers: { Authorization: `Bearer ${token}` } });
       if (!res.ok) throw new Error('Falha ao carregar faturas');
       const data = await res.json();
+      if (data && typeof data === 'object' && data.user && typeof data.user === 'object') {
+        setUserRecord(data.user as Record<string, unknown>);
+      } else {
+        setUserRecord(null);
+      }
       const mapped: Payment[] = Array.isArray(data?.payments)
         ? data.payments.map((payment: Payment) => ({
             ...payment,
@@ -117,6 +124,49 @@ export default function FaturasPage() {
     return { paid: paidList, pending: pendingList };
   }, [payments]);
 
+  const hasPaidInvoices = paid.length > 0;
+  const hasPendingInvoices = pending.length > 0;
+
+  const paymentType = useMemo(() => {
+    if (!userRecord) return '';
+    const record = userRecord as Record<string, unknown>;
+    const rawPaymentType =
+      (typeof record['paymentType'] === 'string' && record['paymentType']) ||
+      (typeof record['billingType'] === 'string' && record['billingType']) ||
+      (typeof record['billingMethod'] === 'string' && record['billingMethod']) ||
+      '';
+    return rawPaymentType;
+  }, [userRecord]);
+
+  const billingNotice = useMemo(() => {
+    if (!userRecord) return null;
+    const record = userRecord as Record<string, unknown>;
+    const rawNotice = record['billingNotice'];
+    if (rawNotice && typeof rawNotice === 'object') {
+      const noticeRecord = rawNotice as Record<string, unknown>;
+      return {
+        reason:
+          typeof noticeRecord['reason'] === 'string' ? noticeRecord['reason'] : record['blockedReason'] ?? null,
+        message:
+          typeof noticeRecord['message'] === 'string'
+            ? noticeRecord['message']
+            : 'Identificamos um pagamento em atraso. Seu acesso às consultas permanece suspenso até que o pagamento seja confirmado pelo Asaas.',
+        dueDate: typeof noticeRecord['dueDate'] === 'string' ? noticeRecord['dueDate'] : null,
+      };
+    }
+    const status = String(record['status'] || '').toLowerCase();
+    const reason = String(record['blockedReason'] || '').toLowerCase();
+    if (status === 'inactive' && reason === 'overdue_payment') {
+      return {
+        reason: 'overdue_payment',
+        message:
+          'Identificamos um pagamento em atraso. Seu acesso às consultas permanece suspenso até que o pagamento seja confirmado pelo Asaas.',
+        dueDate: null,
+      };
+    }
+    return null;
+  }, [userRecord]);
+
   return (
     <div className="space-y-6">
       <section className="rounded-3xl border border-white/70 bg-white/90 p-6 shadow-sm">
@@ -139,7 +189,7 @@ export default function FaturasPage() {
           <div className="rounded-2xl border border-white/70 bg-white/80 p-4 flex flex-col gap-3">
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">Forma de pagamento</p>
-              <p className="mt-2 text-sm font-semibold text-zinc-900">{statusLabel(data.me?.user?.paymentType)}</p>
+              <p className="mt-2 text-sm font-semibold text-zinc-900">{statusLabel(paymentType)}</p>
             </div>
             <button
               type="button"
@@ -174,6 +224,22 @@ export default function FaturasPage() {
           </div>
         </div>
       </section>
+
+      {billingNotice ? (
+        <section className="rounded-3xl border border-amber-200 bg-amber-50/90 p-6 shadow-sm text-sm text-amber-800">
+          <h3 className="text-base font-semibold">Acesso temporariamente suspenso</h3>
+          <p className="mt-2 leading-relaxed">{billingNotice.message}</p>
+          {billingNotice.dueDate ? (
+            <p className="mt-2 text-xs font-medium">
+              Fatura vencida em {formatDate(billingNotice.dueDate)}. Assim que o pagamento for reconhecido, o acesso será restabelecido automaticamente.
+            </p>
+          ) : (
+            <p className="mt-2 text-xs font-medium">
+              Assim que o pagamento for reconhecido pelo Asaas, o acesso será restabelecido automaticamente.
+            </p>
+          )}
+        </section>
+      ) : null}
 
       <section className="rounded-3xl border border-white/70 bg-white/90 p-6 shadow-sm">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">

@@ -456,6 +456,39 @@ export async function POST(req: NextRequest) {
   }
 
   const now = new Date();
+  const loyaltyMonths = new Set<string>();
+
+  for (const entry of subscriptionPayments) {
+    for (const payment of entry.payments) {
+      const status = String(payment?.status || '').toUpperCase();
+      if (!paidStatuses.has(status)) {
+        continue;
+      }
+      const parts = parseDueDateParts(payment.dueDate);
+      if (!parts) {
+        continue;
+      }
+      const referenceDate = new Date(parts.year, parts.month - 1, 1);
+      if (referenceDate.getTime() > now.getTime()) {
+        continue;
+      }
+      loyaltyMonths.add(monthKey(referenceDate));
+    }
+  }
+
+  if (loyaltyMonths.size < 3) {
+    return NextResponse.json(
+      {
+        error: 'loyalty_period_not_met',
+        message:
+          'O plano possui fidelidade mínima de 3 meses. Regularize as três primeiras cobranças antes de solicitar o cancelamento.',
+        requiredMonths: 3,
+        paidMonths: Array.from(loyaltyMonths),
+      },
+      { status: 409 },
+    );
+  }
+
   const reference = { year: now.getFullYear(), month: now.getMonth() + 1 };
 
   for (const entry of subscriptionPayments) {
