@@ -3,7 +3,7 @@
 import { useAuthContext } from '@/components/auth/AuthProvider';
 import PaymentMethodDialog from '@/components/plan/PaymentMethodDialog';
 import Link from 'next/link';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
 type Payment = {
   id: string;
@@ -78,7 +78,7 @@ export default function FaturasPage() {
   const [loading, setLoading] = useState(false);
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
 
-  const loadPayments = useCallback(async () => {
+  const loadPayments = React.useCallback(async () => {
     if (!token) return;
     try {
       setErr('');

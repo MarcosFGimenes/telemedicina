@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useAuthContext } from '@/components/auth/AuthProvider';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { PlanDefinition } from '@/types/plans';
-import { formatCurrency } from '@/utils/format';
+import { normalizeBeneficiaryRecord } from '@/utils/beneficiary';
 
 type UserDoc = {
   name?: string;
@@ -145,8 +145,8 @@ export default function PerfilPage() {
 
   const fetchBeneficiary = useCallback(async () => {
     const beneficiaryUuid = me?.user?.beneficiaryUuid;
-    const cpf = me?.user?.cpf;
-    if (!beneficiaryUuid && !cpf) {
+    const cpfDigits = (me?.user?.cpf || '').replace(/\D/g, '');
+    if (!beneficiaryUuid && !cpfDigits) {
       setBeneficiary(null);
       return;
     }
@@ -154,13 +154,105 @@ export default function PerfilPage() {
     try {
       setLoadingBeneficiary(true);
       setBeneficiaryError('');
-      const url = beneficiaryUuid
-        ? `/api/rapidoc/beneficiaries/${beneficiaryUuid}`
-        : `/api/rapidoc/beneficiaries/cpf/${cpf}`;
-      const res = await fetch(url);
+      const endpoint = beneficiaryUuid
+        ? `/api/rapidoc/beneficiaries/${encodeURIComponent(beneficiaryUuid)}`
+        : `/api/rapidoc/beneficiaries/cpf/${cpfDigits}`;
+      const res = await fetch(endpoint);
       const data = await res.json().catch(() => null);
-      if (!res.ok) throw new Error((data as any)?.message || (data as any)?.error || 'Falha ao carregar beneficiário.');
-      setBeneficiary((data || null) as Beneficiary | null);
+      if (res.status === 404) {
+        const message =
+          (typeof (data as any)?.message === 'string' && (data as any)?.message) ||
+          'Beneficiário não encontrado na Rapidoc.';
+        setBeneficiary(null);
+        setBeneficiaryError(message);
+        return;
+      }
+      if (!res.ok) {
+        throw new Error((data as any)?.message || (data as any)?.error || 'Falha ao carregar beneficiário.');
+      }
+
+      const fallbackCpf = cpfDigits || '';
+      const normalized =
+        data && typeof data === 'object'
+          ? normalizeBeneficiaryRecord(data as Record<string, unknown>, fallbackCpf)
+          : null;
+
+      const readSpecialties = (raw: unknown): PlanSpecialty[] => {
+        const parseList = (value: unknown): PlanSpecialty[] => {
+          if (!Array.isArray(value)) return [];
+          return value
+            .map((entry) => {
+              if (entry && typeof entry === 'object') {
+                const record = entry as Record<string, unknown>;
+                const name = typeof record.name === 'string' ? record.name : typeof record.description === 'string' ? record.description : '';
+                if (!name) return null;
+                const uuidValue =
+                  (typeof record.uuid === 'string' && record.uuid) ||
+                  (typeof record.id === 'string' && record.id) ||
+                  (typeof record.specialtyUuid === 'string' && record.specialtyUuid) ||
+                  undefined;
+                return { uuid: uuidValue, name };
+              }
+              if (typeof entry === 'string' && entry.trim()) {
+                return { uuid: undefined, name: entry.trim() };
+              }
+              return null;
+            })
+            .filter(Boolean) as PlanSpecialty[];
+        };
+
+        if (raw && typeof raw === 'object') {
+          const record = raw as Record<string, unknown>;
+          const candidates = [
+            parseList(record.specialties),
+            parseList(record.especialidades),
+            parseList(record.specialtiesAllowed),
+            parseList(record.specialtiesLiberadas),
+          ];
+          const firstFilled = candidates.find((list) => list.length > 0);
+          if (firstFilled && firstFilled.length) {
+            return firstFilled;
+          }
+          const plans = record.plans;
+          if (Array.isArray(plans)) {
+            for (const plan of plans) {
+              const found = parseList(plan?.specialties);
+              if (found.length) {
+                return found;
+              }
+            }
+          }
+        }
+        return [];
+      };
+
+      const specialties = readSpecialties(data || null);
+
+      setBeneficiary({
+        uuid: normalized?.uuid || (typeof (data as any)?.uuid === 'string' ? (data as any).uuid : undefined),
+        id: typeof (data as any)?.id === 'string' ? (data as any).id : undefined,
+        name: normalized?.name || (typeof (data as any)?.name === 'string' ? (data as any).name : undefined),
+        email: normalized?.email || (typeof (data as any)?.email === 'string' ? (data as any).email : undefined),
+        phone: normalized?.phone || (typeof (data as any)?.phone === 'string' ? (data as any).phone : undefined),
+        zipCode: normalized?.zipCode || (typeof (data as any)?.zipCode === 'string' ? (data as any).zipCode : undefined),
+        address: normalized?.address || (typeof (data as any)?.address === 'string' ? (data as any).address : undefined),
+        city: normalized?.city || (typeof (data as any)?.city === 'string' ? (data as any).city : undefined),
+        state: normalized?.state || (typeof (data as any)?.state === 'string' ? (data as any).state : undefined),
+        cpf: normalized?.cpf || cpfDigits || undefined,
+        birthday:
+          normalized?.birthday || (typeof (data as any)?.birthday === 'string' ? (data as any).birthday : undefined),
+        paymentType:
+          (normalized?.paymentType as Beneficiary['paymentType']) ||
+          (typeof (data as any)?.paymentType === 'string' ? ((data as any).paymentType as Beneficiary['paymentType']) : undefined),
+        serviceType:
+          normalized?.serviceType ||
+          (typeof (data as any)?.serviceType === 'string' ? (data as any).serviceType : undefined),
+        status:
+          (typeof (data as any)?.status === 'string' && (data as any).status) ||
+          (typeof (data as any)?.situation === 'string' && (data as any).situation) ||
+          (typeof normalized?.raw?.status === 'string' ? (normalized?.raw?.status as string) : undefined),
+        specialties,
+      });
     } catch (error: any) {
       setBeneficiary(null);
       setBeneficiaryError(error?.message || 'Não foi possível carregar o status do plano.');
