@@ -42,10 +42,17 @@ export async function PUT(req: NextRequest) {
   const uid = decoded.uid;
   const email = decoded.email || null;
 
-  const payload = (await req.json()) as { serviceType?: string; paymentType?: string; planName?: string };
+  const payload = (await req.json()) as {
+    serviceType?: string;
+    paymentType?: string;
+    planName?: string;
+    planValue?: number | null;
+  };
   const serviceType = (payload.serviceType || '').toUpperCase();
   const paymentType = payload.paymentType || undefined;
   const planName = payload.planName || (await derivePlanName(serviceType));
+  const planValue =
+    typeof payload.planValue === 'number' && Number.isFinite(payload.planValue) ? Number(payload.planValue) : undefined;
 
   const users = db.collection('users');
   let snap = await users.where('authUid', '==', uid).limit(1).get();
@@ -57,8 +64,9 @@ export async function PUT(req: NextRequest) {
   if (serviceType) updates.serviceType = serviceType;
   if (paymentType) updates.paymentType = paymentType;
   if (planName) updates.planName = planName;
+  if (planValue !== undefined) updates.planValue = planValue;
 
   await ref.set(updates, { merge: true });
-  return NextResponse.json({ ok: true, planName, serviceType, paymentType });
+  return NextResponse.json({ ok: true, planName, serviceType, paymentType, planValue: planValue ?? null });
 }
 
