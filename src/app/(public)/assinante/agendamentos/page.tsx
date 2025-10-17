@@ -69,6 +69,61 @@ const formatDateLabel = (value?: string): string | null => {
   return trimmed;
 };
 
+const formatFriendlyDate = (value?: string): string | null => {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(trimmed)) {
+    return trimmed;
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    const [year, month, day] = trimmed.split('-');
+    return `${day}/${month}/${year}`;
+  }
+  const date = new Date(trimmed);
+  if (!Number.isNaN(date.getTime())) {
+    try {
+      return new Intl.DateTimeFormat('pt-BR', { dateStyle: 'long' }).format(date);
+    } catch {
+      return trimmed;
+    }
+  }
+  return trimmed;
+};
+
+const formatFriendlyTime = (value?: string): string | null => {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const timeMatch = trimmed.match(/^(\d{2}):(\d{2})(?::\d{2})?$/);
+  if (timeMatch) {
+    return `${timeMatch[1]}h${timeMatch[2]}`;
+  }
+  if (/^\d{2}h\d{2}$/.test(trimmed)) {
+    return trimmed;
+  }
+  return trimmed;
+};
+
+const formatStatusLabel = (value?: string): string | null => {
+  if (!value) return null;
+  const normalized = value.trim().toUpperCase();
+  if (!normalized) return null;
+  const map: Record<string, string> = {
+    SCHEDULED: 'Confirmado',
+    CONFIRMED: 'Confirmado',
+    CANCELLED: 'Cancelado',
+    CANCELED: 'Cancelado',
+    RESCHEDULED: 'Reagendado',
+    COMPLETED: 'Concluído',
+    FINISHED: 'Concluído',
+  };
+  if (map[normalized]) {
+    return map[normalized];
+  }
+  return normalized.charAt(0) + normalized.slice(1).toLowerCase();
+};
+
 const parseReferrals = (raw: unknown): ReferralOption[] => {
   const containers: Record<string, unknown>[] = [];
   const queue: unknown[] = [raw];
@@ -460,9 +515,13 @@ export default function AssinanteAgendamentosPage() {
       } catch (error: unknown) {
         if (!active) return;
         setBeneficiarySnapshot(null);
-        setBeneficiarySnapshotError(
-          messageFromAxiosError(error, 'Falha ao carregar informações do beneficiário na Rapidoc.'),
-        );
+        if (axios.isAxiosError(error) && error.response?.status === 404) {
+          setBeneficiarySnapshotError('');
+        } else {
+          setBeneficiarySnapshotError(
+            messageFromAxiosError(error, 'Falha ao carregar informações do beneficiário na Rapidoc.'),
+          );
+        }
       } finally {
         if (active) {
           setLoadingBeneficiarySnapshot(false);
@@ -759,6 +818,54 @@ export default function AssinanteAgendamentosPage() {
       ''
     );
   }, [result]);
+
+  const appointmentSummary = useMemo(() => {
+    const record = asRecord(result);
+    if (!record) return null;
+
+    const beneficiary = asRecord(record['beneficiary']);
+    const professional = asRecord(record['professional']);
+    const specialty = asRecord(record['specialty']);
+    const detail = asRecord(record['detail']);
+    const clinic = asRecord(record['clinic']);
+    const slot = asRecord(selectedSlotSummary?.raw);
+
+    const dateRaw =
+      stringFrom(detail?.['date']) ||
+      stringFrom(record['date']) ||
+      stringFrom(slot?.['date']) ||
+      stringFrom(slot?.['day']);
+    const fromRaw =
+      stringFrom(detail?.['from']) ||
+      stringFrom(slot?.['from']) ||
+      stringFrom(slot?.['start']) ||
+      stringFrom(slot?.['time']);
+    const toRaw = stringFrom(detail?.['to']) || stringFrom(slot?.['to']) || stringFrom(slot?.['end']);
+
+    const date = formatFriendlyDate(dateRaw);
+    const from = formatFriendlyTime(fromRaw);
+    const to = formatFriendlyTime(toRaw);
+    const range = from && to ? `${from} às ${to}` : from || null;
+
+    const portalUrl =
+      stringFrom(record['beneficiaryUrl']) ||
+      stringFrom(record['appointmentUrl']) ||
+      stringFrom(record['redirectUrl']) ||
+      '';
+
+    return {
+      beneficiaryName: stringFrom(beneficiary?.['name']) || null,
+      professionalName: stringFrom(professional?.['name']) || null,
+      specialtyName: stringFrom(specialty?.['name']) || null,
+      clinicName: stringFrom(clinic?.['name']) || null,
+      date: date || null,
+      range: range || null,
+      slotLabel: selectedSlotSummary?.label || null,
+      referralLabel: selectedReferralSummary?.label || null,
+      statusLabel: formatStatusLabel(stringFrom(record['status'])),
+      portalUrl: portalUrl || null,
+    };
+  }, [result, selectedSlotSummary, selectedReferralSummary]);
 
   useEffect(() => {
     if (!beneficiaryPlanSummary?.planLabel) return;
@@ -1184,29 +1291,62 @@ export default function AssinanteAgendamentosPage() {
           </div>
         )}
 
-        {result && (
-          <details className="mt-4 rounded-2xl border border-white/70 bg-white/80 p-4 text-xs text-zinc-600">
-            <summary className="cursor-pointer text-sm font-semibold text-emerald-700">Detalhes técnicos do retorno</summary>
-            <pre className="mt-3 whitespace-pre-wrap break-all text-[11px] leading-relaxed">
-              {JSON.stringify(result, null, 2)}
-            </pre>
-            {selectedSlotSummary?.raw && (
-              <div className="mt-3 rounded-lg border border-emerald-100 bg-emerald-50/80 p-2">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Slot selecionado</p>
-                <pre className="mt-1 whitespace-pre-wrap break-all text-[11px] leading-relaxed">
-                  {JSON.stringify(selectedSlotSummary.raw, null, 2)}
-                </pre>
-              </div>
+        {appointmentSummary && (
+          <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50/80 p-4 text-sm text-emerald-800">
+            <p className="text-sm font-semibold text-emerald-900">Tudo certo com o seu agendamento!</p>
+            <p className="mt-2 text-sm text-emerald-800">
+              {appointmentSummary.beneficiaryName ? `${appointmentSummary.beneficiaryName}, ` : ''}seu agendamento foi
+              realizado com sucesso. Confira os detalhes abaixo para se preparar para a consulta.
+            </p>
+            <ul className="mt-3 space-y-1 text-xs text-emerald-700">
+              {appointmentSummary.statusLabel && (
+                <li>
+                  <span className="font-semibold text-emerald-900">Status:</span> {appointmentSummary.statusLabel}
+                </li>
+              )}
+              {appointmentSummary.date && (
+                <li>
+                  <span className="font-semibold text-emerald-900">Data:</span> {appointmentSummary.date}
+                </li>
+              )}
+              {(appointmentSummary.range || appointmentSummary.slotLabel) && (
+                <li>
+                  <span className="font-semibold text-emerald-900">Horário:</span>{' '}
+                  {appointmentSummary.range || appointmentSummary.slotLabel}
+                </li>
+              )}
+              {appointmentSummary.professionalName && (
+                <li>
+                  <span className="font-semibold text-emerald-900">Profissional:</span> {appointmentSummary.professionalName}
+                </li>
+              )}
+              {appointmentSummary.specialtyName && (
+                <li>
+                  <span className="font-semibold text-emerald-900">Especialidade:</span> {appointmentSummary.specialtyName}
+                </li>
+              )}
+              {appointmentSummary.clinicName && (
+                <li>
+                  <span className="font-semibold text-emerald-900">Atendimento:</span> {appointmentSummary.clinicName}
+                </li>
+              )}
+              {appointmentSummary.referralLabel && (
+                <li>
+                  <span className="font-semibold text-emerald-900">Encaminhamento:</span> {appointmentSummary.referralLabel}
+                </li>
+              )}
+            </ul>
+            {appointmentSummary.portalUrl && (
+              <a
+                href={appointmentSummary.portalUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-3 inline-flex items-center gap-2 rounded-full border border-emerald-600 px-4 py-2 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100"
+              >
+                Acompanhar agendamento na Rapidoc
+              </a>
             )}
-            {selectedReferral?.raw && (
-              <div className="mt-3 rounded-lg border border-emerald-100 bg-emerald-50/80 p-2">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Encaminhamento utilizado</p>
-                <pre className="mt-1 whitespace-pre-wrap break-all text-[11px] leading-relaxed">
-                  {JSON.stringify(selectedReferral.raw, null, 2)}
-                </pre>
-              </div>
-            )}
-          </details>
+          </div>
         )}
       </section>
     </div>
