@@ -30,7 +30,10 @@ export async function GET(_request: NextRequest, ctx: { params: Promise<{ cpf: s
   try {
     const found = await rapidocFindByCpf(digits);
     if (!found) {
-      return NextResponse.json({ error: '' }, { status: 404 });
+      return NextResponse.json(
+        { hint: 'rapidoc-beneficiary-cpf-get', message: 'Beneficiário não encontrado.', upstreamStatus: 404, upstream: null },
+        { status: 404 },
+      );
     }
     return NextResponse.json(found);
   } catch (error) {
@@ -48,8 +51,10 @@ export async function GET(_request: NextRequest, ctx: { params: Promise<{ cpf: s
         { status },
       );
     }
-    const message = error instanceof Error ? error.message : 'unknown error';
-    return jsonError('rapidoc-beneficiary-cpf-get', 500, message);
+    const status = typeof (error as any)?.status === 'number' ? (error as any).status : 500;
+    const message =
+      (error instanceof Error && error.message) || 'Erro inesperado ao consultar beneficiário por CPF na Rapidoc.';
+    return jsonError('rapidoc-beneficiary-cpf-get', status, message);
   }
 }
 

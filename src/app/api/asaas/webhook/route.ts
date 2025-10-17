@@ -12,6 +12,14 @@ import {
   reactivateBeneficiary,
 } from '@/lib/rapidocService';
 
+const THREE_DAYS_IN_MS = 3 * 24 * 60 * 60 * 1000;
+
+const parseDate = (value: unknown) => {
+  if (typeof value !== 'string') return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
 const SECRET = (process.env.ASAAS_WEBHOOK_SECRET || '').trim();
 
 const ACTIVATION_EVENTS = new Set(['PAYMENT_RECEIVED', 'PAYMENT_CONFIRMED']);
@@ -48,6 +56,7 @@ export async function POST(req: NextRequest) {
   const payment = event?.payment;
   const customerId: string | undefined = payment?.customer;
   const eventId: string | undefined = event?.id;
+  const paymentId: string | undefined = payment?.id;
 
   if (!customerId) {
     return NextResponse.json({ ok: true, note: 'missing customer id' });
@@ -135,6 +144,8 @@ export async function POST(req: NextRequest) {
     customer: asaasCustomer,
   });
 
+  const now = new Date();
+
   if (ACTIVATION_EVENTS.has(type)) {
     const ensured = await ensureBeneficiaryByCPF(basePayload);
     if (ensured?.uuid) {
@@ -147,23 +158,59 @@ export async function POST(req: NextRequest) {
       await userRef.update({
         status: 'active',
         beneficiaryUuid: ensured.uuid,
+        blockedReason: null,
+        billingNotice: null,
         updatedAt: new Date(),
       });
     }
   } else if (DEACTIVATION_EVENTS.has(type)) {
-    await userRef.update({ status: 'inactive', updatedAt: new Date() });
-    if (user?.beneficiaryUuid) {
-      try {
-        await deactivateBeneficiary(String(user.beneficiaryUuid));
-      } catch (error) {
-        console.error('[asaas/webhook] deactivate failed', user?.beneficiaryUuid, error);
+    let shouldDeactivate = true;
+    let blockedReason: string | null = null;
+    let billingNotice: Record<string, unknown> | null = null;
+
+    if (type === 'PAYMENT_OVERDUE') {
+      blockedReason = 'overdue_payment';
+      const dueDate = parseDate(payment?.dueDate);
+      if (dueDate) {
+        const graceLimit = new Date(dueDate.getTime() + THREE_DAYS_IN_MS);
+        if (now.getTime() < graceLimit.getTime()) {
+          shouldDeactivate = false;
+        }
+      }
+
+      if (shouldDeactivate) {
+        const message =
+          'Identificamos um pagamento em atraso. Seu acesso às consultas permanecerá suspenso até que o pagamento seja confirmado pelo Asaas.';
+        billingNotice = {
+          reason: blockedReason,
+          message,
+          paymentId: paymentId ?? null,
+          dueDate: payment?.dueDate ?? null,
+          updatedAt: now,
+          createdAt: now,
+        };
+      }
+    }
+
+    if (shouldDeactivate) {
+      const updatePayload: Record<string, unknown> = { status: 'inactive', updatedAt: now };
+      updatePayload.blockedReason = blockedReason;
+      updatePayload.billingNotice = billingNotice;
+
+      await userRef.update(updatePayload);
+
+      if (user?.beneficiaryUuid) {
+        try {
+          await deactivateBeneficiary(String(user.beneficiaryUuid));
+        } catch (error) {
+          console.error('[asaas/webhook] deactivate failed', user?.beneficiaryUuid, error);
+        }
       }
     }
   }
 
   // Registrar/atualizar documento de fatura (payments) deste pagamento
   try {
-    const paymentId: string | undefined = payment?.id;
     if (paymentId) {
       const payRef = db.collection('payments').doc(paymentId);
       const payload: Record<string, unknown> = {
