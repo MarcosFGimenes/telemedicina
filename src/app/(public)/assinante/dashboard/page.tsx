@@ -5,6 +5,13 @@ import { useAuthContext } from '@/components/auth/AuthProvider';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import PlanChangeDialog from '@/components/plan/PlanChangeDialog';
 import type { PlanDefinition } from '@/types/plans';
+import {
+  appointmentDateFrom,
+  formatAppointmentDateTime,
+  isCanceledStatus,
+  parseAppointments,
+  type AppointmentListItem,
+} from '@/lib/rapidoc/appointments';
 
 type Payment = {
   id: string;
@@ -73,6 +80,43 @@ const formatDateTime = (value?: string) => {
   }).format(date);
 };
 
+const asRecord = (value: unknown): Record<string, unknown> | null => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+};
+
+const messageFromPayload = (payload: unknown): string | undefined => {
+  const record = asRecord(payload);
+  if (!record) return undefined;
+  const backendMessage = asRecord(record['backend'])?.['message'];
+  if (typeof backendMessage === 'string' && backendMessage.trim()) {
+    return backendMessage.trim();
+  }
+  const candidates = ['message', 'error', 'detail', 'title'] as const;
+  for (const key of candidates) {
+    const value = record[key];
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (trimmed) {
+        return trimmed;
+      }
+    }
+  }
+  return undefined;
+};
+
+const messageFromError = (error: unknown, fallback: string): string => {
+  if (error instanceof Error && error.message) {
+    const trimmed = error.message.trim();
+    if (trimmed) return trimmed;
+  }
+  if (typeof error === 'string') {
+    const trimmed = error.trim();
+    if (trimmed) return trimmed;
+  }
+  return fallback;
+};
+
 export default function AssinanteDashboard() {
   const { token } = useAuthContext();
   const [data, setData] = useState<Snapshot>({ me: null, dependents: [] });
@@ -83,6 +127,11 @@ export default function AssinanteDashboard() {
   const [beneficiaryError, setBeneficiaryError] = useState('');
   const [planDefinition, setPlanDefinition] = useState<PlanDefinition | null>(null);
   const [showPlanChange, setShowPlanChange] = useState(false);
+  const [appointments, setAppointments] = useState<AppointmentListItem[]>([]);
+  const [appointmentsLoading, setAppointmentsLoading] = useState(false);
+  const [appointmentsError, setAppointmentsError] = useState('');
+  const [appointmentsMessage, setAppointmentsMessage] = useState('');
+  const [cancelingUuid, setCancelingUuid] = useState('');
 
   const loadSnapshot = useCallback(async () => {
     if (!token) return;
@@ -205,6 +254,127 @@ export default function AssinanteDashboard() {
   const beneficiaryUuid = beneficiary?.uuid || beneficiary?.id || data.me?.user?.beneficiaryUuid || '';
   const isPlanActive = status === 'ATIVO' || status === 'ACTIVE';
 
+  useEffect(() => {
+    setAppointmentsMessage('');
+    if (!beneficiaryUuid) {
+      setAppointments([]);
+      setAppointmentsError('');
+      setAppointmentsLoading(false);
+      return;
+    }
+
+    let active = true;
+    const load = async () => {
+      try {
+        setAppointmentsLoading(true);
+        setAppointmentsError('');
+        const res = await fetch(`/api/rapidoc/beneficiaries/${beneficiaryUuid}/appointments`);
+        let payload: unknown = null;
+        try {
+          payload = await res.json();
+        } catch {
+          payload = null;
+        }
+        if (!res.ok) {
+          const message = messageFromPayload(payload) || 'Falha ao carregar agendamentos.';
+          throw new Error(message);
+        }
+        if (!active) return;
+        setAppointments(parseAppointments(payload));
+      } catch (err) {
+        if (!active) return;
+        setAppointments([]);
+        setAppointmentsError(messageFromError(err, 'Falha ao carregar agendamentos.'));
+      } finally {
+        if (active) {
+          setAppointmentsLoading(false);
+        }
+      }
+    };
+
+    void load();
+
+    return () => {
+      active = false;
+    };
+  }, [beneficiaryUuid]);
+
+  const previewLimit = 5;
+  const upcomingAppointments = useMemo(() => {
+    const now = Date.now();
+    const filtered = appointments.filter((item) => {
+      if (isCanceledStatus(item.status)) {
+        return false;
+      }
+      const date = appointmentDateFrom(item);
+      if (!date) {
+        return true;
+      }
+      return date.getTime() >= now;
+    });
+    const sorted = [...filtered];
+    sorted.sort((a, b) => {
+      const aDate = appointmentDateFrom(a);
+      const bDate = appointmentDateFrom(b);
+      if (aDate && bDate) {
+        return aDate.getTime() - bDate.getTime();
+      }
+      if (aDate) return -1;
+      if (bDate) return 1;
+      return a.uuid.localeCompare(b.uuid);
+    });
+    return sorted;
+  }, [appointments]);
+
+  const upcomingPreview = useMemo(
+    () => upcomingAppointments.slice(0, previewLimit),
+    [previewLimit, upcomingAppointments],
+  );
+
+  const cancelAppointment = useCallback(
+    async (appointment: AppointmentListItem) => {
+      const trimmed = appointment.uuid.trim();
+      if (!trimmed) return;
+
+      setAppointmentsError('');
+      setAppointmentsMessage('');
+
+      const appointmentDate = appointmentDateFrom(appointment);
+      const minimumDiff = 48 * 60 * 60 * 1000; // 48 hours
+      if (appointmentDate) {
+        const diffMs = appointmentDate.getTime() - Date.now();
+        if (diffMs < minimumDiff) {
+          setAppointmentsError('Cancelamentos só são permitidos com no mínimo 48 horas de antecedência.');
+          return;
+        }
+      }
+
+      if (!window.confirm('Deseja cancelar este agendamento?')) return;
+
+      try {
+        setCancelingUuid(trimmed);
+        const res = await fetch(`/api/rapidoc/agendamentos/${trimmed}`, { method: 'DELETE' });
+        let payload: unknown = null;
+        try {
+          payload = await res.json();
+        } catch {
+          payload = null;
+        }
+        if (!res.ok) {
+          const message = messageFromPayload(payload) || 'Falha ao cancelar o agendamento.';
+          throw new Error(message);
+        }
+        setAppointments((prev) => prev.filter((item) => item.uuid !== trimmed));
+        setAppointmentsMessage('Agendamento cancelado com sucesso.');
+      } catch (err) {
+        setAppointmentsError(messageFromError(err, 'Falha ao cancelar o agendamento.'));
+      } finally {
+        setCancelingUuid('');
+      }
+    },
+    [],
+  );
+
   const mapServiceType = (value?: string) => {
     switch ((value || '').toUpperCase()) {
       case 'G':
@@ -222,7 +392,7 @@ export default function AssinanteDashboard() {
     }
   };
 
-const planName = useMemo(() => {
+  const planName = useMemo(() => {
     if (planDefinition?.name) return planDefinition.name;
     const raw = data.me?.user?.planName as string | undefined;
     if (raw) return raw;
@@ -323,6 +493,97 @@ const planName = useMemo(() => {
           </div>
         </div>
       </div>
+
+      <section className="rounded-3xl border border-white/70 bg-white/90 p-6 shadow-sm">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-zinc-900">Agendamentos</h2>
+            <p className="text-sm text-zinc-600">
+              Visualize os próximos atendimentos e efetue cancelamentos com antecedência mínima de 48 horas.
+            </p>
+          </div>
+          <Link
+            href="/assinante/agendamentos"
+            className="text-xs font-semibold text-emerald-700 underline-offset-2 hover:underline"
+          >
+            Ver todos
+          </Link>
+        </div>
+        {appointmentsMessage && (
+          <p className="mt-3 text-xs text-emerald-700">{appointmentsMessage}</p>
+        )}
+        {appointmentsError && (
+          <p className="mt-3 text-xs text-red-600">{appointmentsError}</p>
+        )}
+        <div className="mt-4 space-y-3">
+          {appointmentsLoading && <p className="text-sm text-zinc-500">Sincronizando com Rapidoc…</p>}
+          {!appointmentsLoading && !upcomingPreview.length && (
+            <p className="text-sm text-zinc-500">Nenhum agendamento futuro disponível no momento.</p>
+          )}
+          {upcomingPreview.map((appointment) => {
+            const busy = cancelingUuid === appointment.uuid;
+            const canceled = isCanceledStatus(appointment.status);
+            const statusLabel = (appointment.status || '').toUpperCase();
+            return (
+              <article
+                key={appointment.uuid}
+                className="rounded-2xl border border-white/70 bg-white/80 p-4 text-sm text-zinc-600 shadow-sm"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <span className="font-mono text-[11px] text-emerald-700">{appointment.uuid}</span>
+                  {statusLabel && (
+                    <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+                      {statusLabel}
+                    </span>
+                  )}
+                </div>
+                <div className="mt-3 grid gap-2 text-sm text-zinc-600 sm:grid-cols-2">
+                  <p>
+                    <span className="font-semibold text-zinc-800">Data e horário:</span>{' '}
+                    {formatAppointmentDateTime(appointment)}
+                  </p>
+                  <p>
+                    <span className="font-semibold text-zinc-800">Especialidade:</span>{' '}
+                    {appointment.specialtyName || '—'}
+                  </p>
+                  {appointment.professionalName && (
+                    <p className="sm:col-span-2">
+                      <span className="font-semibold text-zinc-800">Profissional:</span>{' '}
+                      {appointment.professionalName}
+                    </p>
+                  )}
+                </div>
+                <div className="mt-4 flex flex-wrap items-center gap-2 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => cancelAppointment(appointment)}
+                    disabled={busy || canceled}
+                    className="rounded-full border border-red-600 px-4 py-1.5 text-sm font-semibold text-red-600 transition hover:bg-red-50 disabled:opacity-60"
+                  >
+                    {busy ? 'Cancelando…' : canceled ? 'Cancelado' : 'Cancelar agendamento'}
+                  </button>
+                  {appointment.meetingUrl && (
+                    <a
+                      href={appointment.meetingUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 rounded-full border border-emerald-600 px-4 py-1.5 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50"
+                    >
+                      Abrir link da consulta
+                    </a>
+                  )}
+                </div>
+              </article>
+            );
+          })}
+        </div>
+        {upcomingAppointments.length > previewLimit && (
+          <p className="mt-3 text-[11px] text-zinc-500">
+            Mostrando {upcomingPreview.length} de {upcomingAppointments.length} agendamentos futuros. Acesse a área de agendamentos
+            para visualizar todos.
+          </p>
+        )}
+      </section>
 
       <section className="rounded-3xl border border-white/70 bg-white/90 p-6 shadow-sm">
         <h2 className="text-lg font-semibold text-zinc-900">Próximos passos</h2>
