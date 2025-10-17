@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import type { DecodedIdToken } from 'firebase-admin/auth';
+import type { DocumentReference } from 'firebase-admin/firestore';
 import { adminAuth, db } from '@/lib/firebaseAdmin';
 import {
   ASAAS_PAID_STATUSES,
@@ -35,6 +36,144 @@ const planChangeLogs = db.collection('planChangeLogs');
 const normalizeStatus = (value?: string) => String(value || '').toUpperCase();
 
 const digitsOnly = (value?: string | null) => (value ?? '').replace(/\D/g, '');
+
+const dependentUuidKeys = [
+  'uuid',
+  'id',
+  'beneficiaryUuid',
+  'beneficiaryId',
+  'dependentUuid',
+  'dependentId',
+  'codigo',
+  'code',
+];
+
+const dependentNestedKeys = ['beneficiary', 'beneficiario', 'dependente', 'dependent', 'data', 'payload', 'result', 'item'];
+
+const dependentContainerKeys = [
+  'items',
+  'content',
+  'dependents',
+  'dependentes',
+  'dependentsList',
+  'dependentesList',
+  'beneficiaries',
+  'records',
+  'results',
+  'list',
+  'children',
+  'entries',
+];
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null;
+
+const trimString = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
+
+const pickStringFrom = (record: Record<string, unknown>, keys: string[]): string => {
+  for (const key of keys) {
+    const value = trimString(record[key]);
+    if (value) {
+      return value;
+    }
+  }
+  return '';
+};
+
+const unwrapDependentRecord = (record: Record<string, unknown>) => {
+  for (const key of dependentNestedKeys) {
+    const nested = record[key];
+    if (isRecord(nested)) {
+      return nested;
+    }
+  }
+  return record;
+};
+
+const extractDependentUuid = (record: Record<string, unknown>) => {
+  const flattened = unwrapDependentRecord(record);
+  const direct = pickStringFrom(flattened, dependentUuidKeys);
+  if (direct) {
+    return direct;
+  }
+  return pickStringFrom(record, dependentUuidKeys);
+};
+
+const collectDependentIdentifiers = async (options: {
+  userData: Record<string, unknown>;
+  beneficiaryUuid?: string | null;
+}): Promise<{ uuids: string[]; docRefs: DocumentReference[] }> => {
+  const { userData, beneficiaryUuid } = options;
+  const uuids = new Set<string>();
+  const docRefs = new Set<DocumentReference>();
+
+  const add = (value?: string) => {
+    const trimmed = trimString(value);
+    if (!trimmed) {
+      return;
+    }
+    if (beneficiaryUuid && trimmed === beneficiaryUuid) {
+      return;
+    }
+    uuids.add(trimmed);
+  };
+
+  const collectFromValue = (value: unknown) => {
+    if (!value) {
+      return;
+    }
+    if (typeof value === 'string') {
+      add(value);
+      return;
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        collectFromValue(item);
+      }
+      return;
+    }
+    if (isRecord(value)) {
+      const uuid = extractDependentUuid(value);
+      if (uuid) {
+        add(uuid);
+      }
+      for (const key of dependentContainerKeys) {
+        if (key in value) {
+          collectFromValue((value as Record<string, unknown>)[key]);
+        }
+      }
+    }
+  };
+
+  collectFromValue(userData.dependentUuids);
+  collectFromValue(userData.dependents);
+  collectFromValue(userData.rapidocDependents);
+
+  if (isRecord(userData.rapidocSnapshot)) {
+    const snapshot = userData.rapidocSnapshot as Record<string, unknown>;
+    collectFromValue(snapshot.dependents);
+    collectFromValue(snapshot.dependentes);
+    collectFromValue(snapshot.items);
+    collectFromValue(snapshot.content);
+    collectFromValue(snapshot.records);
+    collectFromValue(snapshot.results);
+  }
+
+  const ownerUid = trimString(userData.authUid);
+  if (ownerUid) {
+    const snapshot = await db.collection('dependents').where('ownerUid', '==', ownerUid).get();
+    for (const doc of snapshot.docs) {
+      docRefs.add(doc.ref);
+      const data = doc.data() as Record<string, unknown>;
+      const uuid = trimString(data.uuid);
+      if (uuid) {
+        add(uuid);
+      }
+    }
+  }
+
+  return { uuids: Array.from(uuids), docRefs: Array.from(docRefs) };
+};
 
 const paidStatus = (status?: string) => ASAAS_PAID_STATUSES.has(normalizeStatus(status));
 const pendingStatus = (status?: string) => ASAAS_PENDING_STATUSES.has(normalizeStatus(status));
@@ -165,6 +304,52 @@ const buildRapidocPayload = (
   }
 
   return payload;
+};
+
+const syncDependentServiceTypes = async (options: {
+  dependentUuids: string[];
+  serviceType: string;
+  paymentType?: string;
+  holderDigits?: string;
+  generalInfo?: string;
+}) => {
+  const { dependentUuids, serviceType, paymentType, holderDigits, generalInfo } = options;
+  const failures: { uuid: string; reason: string }[] = [];
+
+  for (const uuid of dependentUuids) {
+    try {
+      const existing = await rapidocGetBeneficiary(uuid);
+      if (!existing) {
+        continue;
+      }
+      const fallbackCpf = digitsOnly(
+        typeof (existing as any).cpf === 'string'
+          ? (existing as any).cpf
+          : typeof (existing as any).document === 'string'
+          ? (existing as any).document
+          : '',
+      );
+      const payload = buildRapidocPayload(
+        existing,
+        {
+          serviceType,
+          paymentType: paymentType || undefined,
+          holder: holderDigits || undefined,
+          general: generalInfo || undefined,
+        },
+        fallbackCpf,
+      );
+      await rapidocUpdateBeneficiary(uuid, payload);
+    } catch (error) {
+      failures.push({
+        uuid,
+        reason: error instanceof Error && error.message ? error.message : 'unknown_error',
+      });
+      console.error('[plan/change][dependents][rapidoc]', uuid, error);
+    }
+  }
+
+  return { failures };
 };
 
 const summarizeBlocking = (payments: any[]) =>
@@ -316,6 +501,16 @@ export async function POST(req: NextRequest) {
     );
     const generalInfo = typeof userData.general === 'string' ? userData.general : '';
 
+    let dependentUuids: string[] = [];
+    let dependentDocRefs: DocumentReference[] = [];
+    try {
+      const collected = await collectDependentIdentifiers({ userData, beneficiaryUuid });
+      dependentUuids = collected.uuids;
+      dependentDocRefs = collected.docRefs;
+    } catch (error) {
+      console.warn('[plan/change][dependents][collect]', error);
+    }
+
     if (beneficiaryUuid) {
       try {
         const existing = await rapidocGetBeneficiary(beneficiaryUuid);
@@ -339,17 +534,57 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    if (planServiceType && dependentUuids.length) {
+      const { failures } = await syncDependentServiceTypes({
+        dependentUuids,
+        serviceType: planServiceType,
+        paymentType: paymentType || undefined,
+        holderDigits: holderDigits || undefined,
+        generalInfo: generalInfo || undefined,
+      });
+      if (failures.length) {
+        return NextResponse.json(
+          {
+            error: 'dependent_update_failed',
+            message: 'Não foi possível atualizar os dependentes na Rapidoc.',
+            failedDependents: failures,
+          },
+          { status: 502 },
+        );
+      }
+    }
+
+    const changeTimestamp = new Date();
+
+    if (planServiceType && dependentDocRefs.length) {
+      const syncResults = await Promise.allSettled(
+        dependentDocRefs.map((ref) =>
+          ref.set({ serviceType: planServiceType, planServiceType, updatedAt: changeTimestamp }, { merge: true }),
+        ),
+      );
+      syncResults.forEach((result, index) => {
+        if (result.status === 'rejected') {
+          console.warn('[plan/change][dependents][firestore]', dependentDocRefs[index].path, result.reason);
+        }
+      });
+    }
+
     const updates: Record<string, unknown> = {
       planId: plan.id,
       planName: plan.name,
       planDescription: plan.description || '',
       serviceType: planServiceType,
       planServiceType,
-      lastPlanChangeAt: new Date(),
+      lastPlanChangeAt: changeTimestamp,
       lastPlanChangeBy: decoded.uid,
       planValue: plan.value,
-      updatedAt: new Date(),
+      updatedAt: changeTimestamp,
     };
+
+    if (planServiceType && dependentUuids.length) {
+      updates.dependentServiceTypeSyncedAt = changeTimestamp;
+      updates.dependentServiceTypeCount = dependentUuids.length;
+    }
 
     await userSnap.ref.update(updates);
 
@@ -371,8 +606,9 @@ export async function POST(req: NextRequest) {
         changedByUid: decoded.uid,
         changedByEmail: decoded.email || null,
         changedByRole: isAdmin ? 'admin' : 'subscriber',
-        changedAt: new Date(),
+        changedAt: changeTimestamp,
         reason: body.reason || null,
+        dependentSyncCount: dependentUuids.length,
       });
     } catch (error) {
       console.warn('[plan/change][log]', error);
