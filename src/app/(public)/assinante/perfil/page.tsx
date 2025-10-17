@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useAuthContext } from '@/components/auth/AuthProvider';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { PlanDefinition } from '@/types/plans';
+import { formatCurrency } from '@/utils/format';
 
 type UserDoc = {
   name?: string;
@@ -57,7 +58,6 @@ type BeneficiaryForm = {
   city?: string;
   state?: string;
   paymentType?: '' | 'S' | 'A';
-  serviceType?: string;
 };
 
 const serviceTypeLabel = (value?: string) => {
@@ -97,6 +97,7 @@ export default function PerfilPage() {
   const [planFeedback, setPlanFeedback] = useState('');
   const [planError, setPlanError] = useState('');
   const [planSubmitting, setPlanSubmitting] = useState(false);
+  const [selectedPlanId, setSelectedPlanId] = useState('');
 
   useEffect(() => {
     if (!token) return;
@@ -184,9 +185,27 @@ export default function PerfilPage() {
       city: beneficiary.city,
       state: beneficiary.state,
       paymentType: beneficiary.paymentType || '',
-      serviceType: beneficiary.serviceType,
     });
   }, [beneficiary]);
+
+  useEffect(() => {
+    const currentServiceType = (beneficiary?.serviceType || doc?.serviceType || '').trim();
+    if (!currentServiceType) return;
+
+    setSelectedPlanId((prev) => {
+      if (prev) return prev;
+      const match = plans.find((option) => {
+        const normalizedId = option.id.trim().toUpperCase();
+        const normalizedServiceType = (option.serviceType || option.id).trim().toUpperCase();
+        const target = currentServiceType.toUpperCase();
+        return normalizedId === target || normalizedServiceType === target;
+      });
+      if (match) {
+        return match.id;
+      }
+      return currentServiceType.toUpperCase();
+    });
+  }, [beneficiary?.serviceType, doc?.serviceType, plans]);
 
   const beneficiaryUuid = useMemo(
     () => beneficiary?.uuid || beneficiary?.id || me?.user?.beneficiaryUuid || '',
@@ -197,6 +216,16 @@ export default function PerfilPage() {
     return (beneficiary?.specialties || []).map((item) => item?.name).filter(Boolean) as string[];
   }, [beneficiary?.specialties]);
 
+  const selectedPlan = useMemo(() => {
+    if (!selectedPlanId) return null;
+    const normalized = selectedPlanId.trim().toUpperCase();
+    return (
+      plans.find((option) => option.id.trim().toUpperCase() === normalized) ||
+      plans.find((option) => (option.serviceType || option.id).trim().toUpperCase() === normalized) ||
+      null
+    );
+  }, [plans, selectedPlanId]);
+
   const handleBeneficiaryChange = (key: keyof BeneficiaryForm, value: string) => {
     setBeneficiaryForm((prev) => ({ ...prev, [key]: value }));
   };
@@ -204,6 +233,28 @@ export default function PerfilPage() {
   const savePlan = async () => {
     if (!beneficiaryUuid) {
       setPlanError('Beneficiário não localizado. Vincule seu CPF ao plano para continuar.');
+      return;
+    }
+
+    if (!selectedPlanId) {
+      setPlanError('Selecione o plano desejado antes de salvar.');
+      return;
+    }
+
+    const normalizedSelectedId = selectedPlanId.trim().toUpperCase();
+    const plan =
+      selectedPlan ||
+      plans.find((option) => option.id.trim().toUpperCase() === normalizedSelectedId) ||
+      plans.find((option) => (option.serviceType || option.id).trim().toUpperCase() === normalizedSelectedId) ||
+      null;
+
+    if (!plan) {
+      setPlanError('Plano selecionado não encontrado. Escolha uma opção válida.');
+      return;
+    }
+
+    if (!token) {
+      setPlanError('Sessão expirada. Faça login novamente para alterar o plano.');
       return;
     }
 
@@ -220,7 +271,7 @@ export default function PerfilPage() {
         city: beneficiaryForm.city,
         state: beneficiaryForm.state,
         paymentType: beneficiaryForm.paymentType || undefined,
-        serviceType: beneficiaryForm.serviceType || undefined,
+        serviceType: (plan.serviceType || plan.id).trim().toUpperCase() || undefined,
       };
       const res = await fetch(`/api/rapidoc/beneficiaries/${beneficiaryUuid}`, {
         method: 'PUT',
@@ -229,18 +280,34 @@ export default function PerfilPage() {
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) throw new Error((data as any)?.message || (data as any)?.error || 'Falha ao salvar alterações.');
-      setPlanFeedback('Plano atualizado com sucesso.');
-      await fetchBeneficiary();
-      if (token) {
-        await fetch('/api/me/plan', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({
-            serviceType: beneficiaryForm.serviceType,
-            paymentType: beneficiaryForm.paymentType,
-          }),
-        }).catch(() => null);
+      const planChangeRes = await fetch('/api/plano/alterar', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ newPlanId: plan.id }),
+      });
+      const planChangeData = await planChangeRes.json().catch(() => null);
+      if (!planChangeRes.ok) {
+        throw new Error(
+          (planChangeData as any)?.message || (planChangeData as any)?.error || 'Falha ao atualizar o plano e cobranças.',
+        );
       }
+      setPlanFeedback(
+        (planChangeData as any)?.message || 'Plano atualizado com sucesso. As próximas cobranças refletirão o novo valor.',
+      );
+      await fetchBeneficiary();
+      await fetch('/api/me/plan', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          serviceType: (plan.serviceType || plan.id).trim().toUpperCase(),
+          paymentType: beneficiaryForm.paymentType,
+          planName: plan.name,
+          planValue: plan.value,
+        }),
+      }).catch(() => null);
     } catch (error: any) {
       setPlanError(error?.message || 'Não foi possível atualizar o plano.');
     } finally {
@@ -443,21 +510,28 @@ export default function PerfilPage() {
                   </select>
                 </label>
                 <label className="space-y-1">
-                  <span className="block uppercase tracking-wide">ServiceType</span>
+                  <span className="block uppercase tracking-wide">Plano Rapidoc</span>
                   <select
                     className="select"
-                    value={beneficiaryForm.serviceType || ''}
-                    onChange={(e) => handleBeneficiaryChange('serviceType', e.target.value)}
+                    value={selectedPlan?.id || selectedPlanId}
+                    onChange={(e) => setSelectedPlanId(e.target.value)}
+                    disabled={!plans.length}
                   >
                     <option value="">Selecione…</option>
-                    <option value="G">G (clínico)</option>
-                    <option value="P">P (psicologia)</option>
-                    <option value="GP">GP (clínico + psicologia)</option>
-                    <option value="GS">GS (clínico + especialistas)</option>
-                    <option value="GSP">GSP (clínico + especialistas + psicologia)</option>
+                    {plans.map((plan) => (
+                      <option key={plan.id} value={plan.id}>
+                        {plan.name} • {formatCurrency(plan.value)}
+                      </option>
+                    ))}
                   </select>
                 </label>
               </div>
+              {selectedPlan && (
+                <p className="text-[11px] font-semibold text-emerald-700">
+                  Plano selecionado: {selectedPlan.name} ({(selectedPlan.serviceType || selectedPlan.id).toUpperCase()}) •{' '}
+                  {formatCurrency(selectedPlan.value)}
+                </p>
+              )}
             </div>
             <div className="flex flex-wrap gap-2">
               <button
@@ -490,13 +564,17 @@ export default function PerfilPage() {
                 <button
                   key={option.id}
                   onClick={() => {
-                    handleBeneficiaryChange('serviceType', option.id.toUpperCase());
+                    setSelectedPlanId(option.id);
                   }}
-                  className="rounded-2xl border border-white/80 bg-white/80 p-3 text-left text-sm text-zinc-700 transition hover:border-emerald-200 hover:bg-emerald-50/70"
+                  className={`rounded-2xl border p-3 text-left text-sm transition hover:border-emerald-200 hover:bg-emerald-50/70 ${
+                    (selectedPlan?.id || selectedPlanId)?.toUpperCase() === option.id.toUpperCase()
+                      ? 'border-emerald-300 bg-emerald-50/80 text-emerald-800'
+                      : 'border-white/80 bg-white/80 text-zinc-700'
+                  }`}
                 >
                   <span className="block font-semibold text-emerald-700">{option.name}</span>
                   <span className="text-xs text-zinc-500">
-                    {option.id.toUpperCase()} • R$ {option.value.toFixed(2)}
+                    {(option.serviceType || option.id).toUpperCase()} • {formatCurrency(option.value)}
                   </span>
                 </button>
               ))}
