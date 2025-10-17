@@ -54,10 +54,16 @@ export async function GET(req: NextRequest) {
       ? normalizedInitial
       : normalizedFinal;
 
+  const toRapidocDate = (value: string) => {
+    const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) return value;
+    return `${match[3]}/${match[2]}/${match[1]}`;
+  };
+
   const params: Record<string, string> = {
     specialtyUuid: specialtyId,
-    dateInitial: normalizedInitial,
-    dateFinal: ensuredFinal,
+    dateInitial: toRapidocDate(normalizedInitial),
+    dateFinal: toRapidocDate(ensuredFinal),
   };
   if (beneficiaryUuid) params.beneficiaryUuid = beneficiaryUuid;
 
