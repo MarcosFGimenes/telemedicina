@@ -6,7 +6,7 @@ import Link from "next/link";
 export const metadata: Metadata = {
   title: "Medicos Consultas Online",
   description:
-    "Central do assinante para agendamentos digitais e gestão integrada à Rapidoc e Asaas.",
+    "Central do assinante para agendamentos digitais e gestão integrada ao prontuário clínico e Asaas.",
 };
 
 export default function RootLayout({
@@ -25,7 +25,7 @@ export default function RootLayout({
               <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 sm:flex-row sm:items-center sm:justify-between">
                 <p className="font-medium text-emerald-700">Medicos Consultas Online</p>
                 <p className="text-xs sm:text-sm">
-                  Integração com Rapidoc &amp; Asaas para operação completa de telemedicina.
+                  Integração com prontuário clínico &amp; Asaas para operação completa de telemedicina.
                 </p>
                 <div className="flex items-center gap-4 text-xs sm:text-sm">
                   <Link

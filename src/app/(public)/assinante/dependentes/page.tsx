@@ -275,7 +275,7 @@ export default function AssinanteDependentesPage() {
                   {String(dependent.status || 'ATIVO').toUpperCase()}
                 </p>
                 <p className="mt-2 text-xs text-zinc-600">
-                  Plano Rapidoc:{' '}
+                  Plano sincronizado:{' '}
                   <span className="font-semibold text-emerald-600">
                     {dependent.serviceType ? dependent.serviceType.toUpperCase() : '—'}
                   </span>
@@ -302,7 +302,7 @@ export default function AssinanteDependentesPage() {
       <section className="rounded-3xl border border-white/70 bg-white/90 p-6 shadow-sm">
         <h2 className="text-lg font-semibold text-zinc-900">Cadastrar novo dependente</h2>
         <p className="mt-1 text-sm text-zinc-600">
-          Os dados abaixo são enviados diretamente para a Rapidoc e vinculados ao seu contrato após confirmação.
+          Os dados abaixo são enviados diretamente para o prontuario clínico e vinculados ao seu contrato após confirmação.
         </p>
 
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -334,7 +334,7 @@ export default function AssinanteDependentesPage() {
         {err && <p className="mt-3 text-sm text-red-600">{String(err)}</p>}
         {resp && (
           <details className="mt-4 rounded-2xl border border-white/70 bg-white/80 p-4 text-xs text-zinc-600">
-            <summary className="cursor-pointer text-sm font-semibold text-emerald-700">Resposta da Rapidoc</summary>
+            <summary className="cursor-pointer text-sm font-semibold text-emerald-700">Resposta da integração</summary>
             <pre className="mt-3 whitespace-pre-wrap break-all text-[11px] leading-relaxed">{JSON.stringify(resp, null, 2)}</pre>
           </details>
         )}
@@ -361,7 +361,7 @@ export default function AssinanteDependentesPage() {
               <div>
                 <h3 className="text-lg font-semibold text-zinc-900">Gerenciar dependente</h3>
                 <p className="mt-1 text-sm text-zinc-600">
-                  Sempre que este painel é aberto, o plano Rapidoc do dependente é sincronizado com o do titular.
+                  Sempre que este painel é aberto, o plano sincronizado do dependente é alinhado com o do titular.
                 </p>
               </div>
               <button

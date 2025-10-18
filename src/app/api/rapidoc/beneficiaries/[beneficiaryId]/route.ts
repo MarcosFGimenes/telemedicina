@@ -36,7 +36,7 @@ export async function GET(_request: NextRequest, ctx: { params: Promise<{ benefi
       const message =
         (typeof upstreamData === 'object' && upstreamData && (upstreamData as any).message) ||
         error.message ||
-        'Erro ao consultar beneficiário na Rapidoc.';
+        'Erro ao consultar beneficiário no prontuario clinico.';
       return NextResponse.json(
         { hint: 'rapidoc-beneficiary-get', upstreamStatus, message, upstream: upstreamData },
         { status },
@@ -44,7 +44,7 @@ export async function GET(_request: NextRequest, ctx: { params: Promise<{ benefi
     }
     const status = typeof (error as any)?.status === 'number' ? (error as any).status : 500;
     const message =
-      (error instanceof Error && error.message) || 'Erro inesperado ao buscar beneficiário na Rapidoc.';
+      (error instanceof Error && error.message) || 'Erro inesperado ao buscar beneficiário no prontuario clinico.';
     return jsonError('rapidoc-beneficiary-get', status, message);
   }
 }
@@ -67,14 +67,14 @@ export async function PUT(request: NextRequest, ctx: { params: Promise<{ benefic
       const message =
         (typeof upstreamData === 'object' && upstreamData && (upstreamData as any).message) ||
         error.message ||
-        'Erro ao atualizar beneficiário na Rapidoc.';
+        'Erro ao atualizar beneficiário no prontuario clinico.';
       return NextResponse.json(
         { hint: 'rapidoc-beneficiary-put', upstreamStatus, message, upstream: upstreamData },
         { status },
       );
     }
     const status = typeof (error as any)?.status === 'number' ? (error as any).status : 500;
-    const message = (error instanceof Error && error.message) || 'Erro inesperado ao atualizar beneficiário na Rapidoc.';
+    const message = (error instanceof Error && error.message) || 'Erro inesperado ao atualizar beneficiário no prontuario clinico.';
     return jsonError('rapidoc-beneficiary-put', status, message);
   }
 }

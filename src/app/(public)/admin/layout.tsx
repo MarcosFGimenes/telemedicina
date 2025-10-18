@@ -54,7 +54,7 @@ const navLinks: NavLink[] = [
 const metaByRoute: Record<string, LayoutMeta> = {
   '/admin/dashboard': {
     title: 'Painel administrativo',
-    description: 'Visão 360º dos serviços conectados à Rapidoc e ao Asaas.',
+    description: 'Visão 360º dos serviços conectados ao prontuario clinico e ao Asaas.',
   },
   '/admin/beneficiarios': {
     title: 'Gestão de beneficiários',
@@ -74,7 +74,7 @@ const metaByRoute: Record<string, LayoutMeta> = {
   },
   '/admin/planos': {
     title: 'Gestão de planos',
-    description: 'Mantenha os planos Rapidoc com descrições e valores oficiais.',
+    description: 'Mantenha os planos do prontuario clinico com descrições e valores oficiais.',
   },
 };
 
@@ -128,7 +128,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <div className="rounded-2xl border border-emerald-200 bg-emerald-50/80 p-4 text-xs text-emerald-700">
               <p className="font-semibold">Como usar</p>
               <p className="mt-1">
-                Todas as ações administrativas são refletidas diretamente na API Rapidoc e no Asaas. Utilize a seção financeira
+                Todas as ações administrativas são refletidas diretamente na API do prontuario clínico e no Asaas. Utilize a seção financeira
                 para confirmar pagamentos antes de liberar novos acessos.
               </p>
             </div>

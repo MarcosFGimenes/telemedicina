@@ -220,7 +220,7 @@ export default function AdminPlansPage() {
               placeholder="Ex.: GS"
               disabled={Boolean(editingId)}
             />
-            <p className="text-xs text-zinc-500">Use o mesmo código utilizado pela Rapidoc.</p>
+            <p className="text-xs text-zinc-500">Use o mesmo código utilizado pelo prontuario clinico.</p>
           </div>
 
           <div className="space-y-2">

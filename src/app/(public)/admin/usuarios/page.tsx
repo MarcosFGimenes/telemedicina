@@ -107,7 +107,7 @@ export default function AdminUsersPage() {
       if (status === 401 || status === 403) {
         setActionError('Voce precisa de um acesso administrativo para listar beneficiarios.');
       } else {
-        setActionError('Nao foi possivel carregar a lista de beneficiarios da Rapidoc.');
+        setActionError('Nao foi possivel carregar a lista de beneficiarios do prontuario clinico.');
       }
       setBeneficiaries([]);
     } finally {
@@ -238,7 +238,7 @@ export default function AdminUsersPage() {
         <header className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-xl font-semibold text-emerald-700">Usuários ativos</h2>
-            <p className="text-sm text-zinc-500">Acompanhe os acessos vinculados aos beneficiários Rapidoc.</p>
+            <p className="text-sm text-zinc-500">Acompanhe os acessos vinculados aos beneficiários sincronizados.</p>
           </div>
           <button className="btn-secondary" onClick={fetchUsers} disabled={loadingUsers}>
             {loadingUsers ? 'Atualizando…' : 'Recarregar lista'}
@@ -331,7 +331,7 @@ export default function AdminUsersPage() {
         <header className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-xl font-semibold text-emerald-700">Beneficiários sem acesso</h2>
-            <p className="text-sm text-zinc-500">Importamos a listagem Rapidoc para identificar quem ainda precisa de login.</p>
+            <p className="text-sm text-zinc-500">Importamos a listagem do prontuario clinico para identificar quem ainda precisa de login.</p>
           </div>
           <button className="btn-secondary" onClick={fetchBeneficiaries} disabled={loadingBeneficiaries}>
             {loadingBeneficiaries ? 'Atualizando…' : 'Atualizar lista'}

@@ -163,7 +163,7 @@ export default function PerfilPage() {
       if (res.status === 404) {
         const message =
           (typeof (data as any)?.message === 'string' && (data as any)?.message) ||
-          'Beneficiário não encontrado na Rapidoc.';
+          'Beneficiário não encontrado no prontuario clinico.';
         setBeneficiary(null);
         setBeneficiaryError(message);
         return;
@@ -490,7 +490,7 @@ export default function PerfilPage() {
             <p className="mt-1 font-mono text-sm text-zinc-700">{doc.cpf || '—'}</p>
           </div>
           <div className="rounded-2xl border border-white/70 bg-white/80 p-3">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-600">Beneficiário Rapidoc</p>
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-600">Beneficiário sincronizado</p>
             <p className="mt-1 font-mono text-sm text-zinc-700">{beneficiaryUuid || '—'}</p>
           </div>
           <div className="rounded-2xl border border-white/70 bg-white/80 p-3">
@@ -511,9 +511,9 @@ export default function PerfilPage() {
       <section className="rounded-3xl border border-white/70 bg-white/90 p-6 shadow-sm">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-zinc-900">Plano e status Rapidoc</h2>
+            <h2 className="text-lg font-semibold text-zinc-900">Plano e status sincronizado</h2>
             <p className="text-sm text-zinc-600">
-              Consulte seu plano diretamente na Rapidoc, ajuste especialidades e mantenha o cadastro sincronizado.
+              Consulte seu plano diretamente no prontuario clinico, ajuste especialidades e mantenha o cadastro alinhado.
             </p>
           </div>
           <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50/80 px-3 py-1 text-xs font-semibold text-emerald-700">
@@ -561,13 +561,13 @@ export default function PerfilPage() {
                   ))}
                 </ul>
               ) : (
-                <p className="mt-2 text-xs text-zinc-500">Nenhuma especialidade informada pela Rapidoc.</p>
+                <p className="mt-2 text-xs text-zinc-500">Nenhuma especialidade informada pelo prontuario.</p>
               )}
             </div>
           </div>
 
           <div className="space-y-3 rounded-2xl border border-white/70 bg-white/80 p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">Atualizar cadastro Rapidoc</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">Atualizar cadastro sincronizado</p>
             <div className="grid gap-3">
               {(
                 [
@@ -603,7 +603,7 @@ export default function PerfilPage() {
                   </select>
                 </label>
                 <label className="space-y-1">
-                  <span className="block uppercase tracking-wide">Plano Rapidoc</span>
+                  <span className="block uppercase tracking-wide">Plano no prontuario</span>
                   <select
                     className="select"
                     value={selectedPlan?.id || selectedPlanId}
@@ -632,7 +632,7 @@ export default function PerfilPage() {
                 disabled={planSubmitting || loadingBeneficiary}
                 className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-60"
               >
-                {planSubmitting ? 'Salvando…' : 'Salvar alterações Rapidoc'}
+                {planSubmitting ? 'Salvando…' : 'Salvar alterações do prontuario'}
               </button>
               <Link
                 href="/assinante/perfil/cancelar"
@@ -649,7 +649,7 @@ export default function PerfilPage() {
           {loadingPlans && <p className="text-sm text-zinc-500">Carregando planos…</p>}
           {plansError && <p className="text-sm text-red-600">{plansError}</p>}
           {!loadingPlans && !plans.length && !plansError && (
-            <p className="text-sm text-zinc-500">Nenhum plano foi retornado pela Rapidoc.</p>
+            <p className="text-sm text-zinc-500">Nenhum plano foi retornado pelo prontuario.</p>
           )}
           {!!plans.length && (
             <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">

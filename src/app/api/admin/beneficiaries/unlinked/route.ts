@@ -68,7 +68,7 @@ export async function GET(req: NextRequest) {
     const hint = (error as { hint?: string })?.hint;
     const message =
       hint === 'rapidoc-list-failed'
-        ? 'Nao foi possivel consultar a lista de beneficiarios na Rapidoc.'
+        ? 'Nao foi possivel consultar a lista de beneficiarios no prontuario clinico.'
         : 'Falha ao carregar beneficiarios sem acesso.';
     console.error('[admin][beneficiaries][unlinked]', error);
     return NextResponse.json({ error: 'list_failed', message }, { status: statusFromError || 500 });

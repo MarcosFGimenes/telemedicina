@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { normalizeBeneficiaryRecord } from '../src/utils/beneficiary';
 import { formatCpf, isValidCpf, isValidPassword, isValidEmail } from '../src/utils/format';
 
-test('normalizeBeneficiaryRecord maps Rapidoc payload to internal fields', () => {
+test('normalizeBeneficiaryRecord maps prontuario payload to internal fields', () => {
   const raw = {
     uuid: '12345-uuid',
     cpf: '123.456.789-09',

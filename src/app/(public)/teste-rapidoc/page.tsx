@@ -1,10 +1,10 @@
 import CheckoutExperience from '@/components/checkout/CheckoutExperience';
 
 export const metadata = {
-  title: 'Laboratorio Rapidoc',
+  title: 'Laboratorio de integracao',
 };
 
-export default function TesteRapidocPage() {
+export default function TesteIntegracaoPage() {
   return <CheckoutExperience allowPlanSelection />;
 }
 

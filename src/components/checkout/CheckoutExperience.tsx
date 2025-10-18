@@ -315,7 +315,7 @@ export default function CheckoutExperience({
         </p>
         <p className="mt-2 text-2xl font-semibold text-emerald-800">{selectedPlan.name}</p>
         <p className="mt-1 text-xs font-medium uppercase text-emerald-500">
-          Codigo Rapidoc: {selectedPlan.id}
+          Código interno: {selectedPlan.id}
         </p>
         <p className="mt-3 text-sm text-emerald-700">
           {selectedPlan.description || 'Sem descricao cadastrada.'}
@@ -609,7 +609,7 @@ export default function CheckoutExperience({
     if (!message) return '';
     const normalized = message.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
     if (normalized.includes('processamento concluido') && normalized.includes('beneficiario criado')) {
-      return 'Processamento concluído com sucesso! Beneficiário criado na Rapidoc. Agora finalize o cadastro de acesso para liberar o portal.';
+      return 'Processamento concluído com sucesso! Beneficiário criado na plataforma parceira. Agora finalize o cadastro de acesso para liberar o portal.';
     }
     return message;
   }, [resp]);
@@ -637,7 +637,7 @@ export default function CheckoutExperience({
             <div className="min-w-[220px] rounded-3xl border border-white/40 bg-white/10 px-6 py-5 text-sm shadow-lg backdrop-blur">
               <p className="text-xs font-semibold uppercase tracking-wide text-white/70">Plano atual</p>
               <p className="mt-2 text-lg font-semibold text-white">{selectedPlan.name}</p>
-              <p className="text-xs text-emerald-100/90">Codigo Rapidoc: {selectedPlan.id}</p>
+              <p className="text-xs text-emerald-100/90">Código interno: {selectedPlan.id}</p>
               <p className="mt-3 text-base font-semibold text-white">
                 R$ {displayValue || '0,00'}
               </p>
@@ -753,7 +753,7 @@ export default function CheckoutExperience({
                       <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">Service Type</p>
                       <p className="mt-2 font-mono text-sm uppercase text-emerald-700">{form.serviceType || '--'}</p>
                       <p className="mt-2 text-xs text-emerald-600">
-                        Essa configuracao sera usada ao criar a assinatura no Asaas/Rapidoc.
+                        Essa configuração será usada ao criar a assinatura no Asaas e sincronizar com o prontuário.
                       </p>
                     </div>
                   </div>
@@ -774,7 +774,7 @@ export default function CheckoutExperience({
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h2 className="text-lg font-semibold text-emerald-800">Dados do beneficiario</h2>
-                <p className="text-sm text-zinc-500">Informe exatamente como aparecer no prontuario Rapidoc.</p>
+                <p className="text-sm text-zinc-500">Informe exatamente como aparecer no prontuário conectado.</p>
               </div>
               <span className="hidden rounded-full border border-emerald-200 bg-white/80 px-4 py-1 text-xs font-semibold uppercase tracking-wide text-emerald-600 sm:inline-flex">
                 Etapa 2 de 3
@@ -809,7 +809,7 @@ export default function CheckoutExperience({
                 );
               })}
             </div>
-            <p className="text-xs text-zinc-500">Os dados enviados sao validados automaticamente pelo conector Rapidoc.</p>
+            <p className="text-xs text-zinc-500">Os dados enviados são validados automaticamente pelo conector do prontuário.</p>
 
             <div className="flex flex-col gap-4 rounded-3xl border border-emerald-100 bg-emerald-50/60 p-6 sm:flex-row sm:items-center sm:justify-between">
               <div>
@@ -1039,7 +1039,7 @@ export default function CheckoutExperience({
 
           {resp && (
             <div className="space-y-2">
-              <h3 className="text-sm font-semibold text-zinc-700">Resposta Rapidoc</h3>
+              <h3 className="text-sm font-semibold text-zinc-700">Retorno da integração</h3>
               <pre className="whitespace-pre-wrap rounded-lg border bg-white p-3 text-xs">
                 {JSON.stringify(resp, null, 2)}
               </pre>

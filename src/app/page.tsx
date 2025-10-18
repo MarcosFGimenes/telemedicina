@@ -4,7 +4,7 @@ const features = [
   {
     title: 'Consultas confirmadas em minutos',
     description:
-      'O assinante seleciona a especialidade, escolhe o melhor horário e recebe a confirmação automática direto na Rapidoc.',
+      'O assinante seleciona a especialidade, escolhe o melhor horário e recebe a confirmação automática direto no prontuário conectado.',
   },
   {
     title: 'Gestão completa da família',
@@ -31,7 +31,7 @@ export default function Home() {
           </h1>
           <p className="text-lg text-zinc-600">
             Simplifique o cuidado digital oferecendo autonomia real para o assinante. A plataforma conecta agendamentos,
-            pagamentos e prontidão do time médico em um ambiente único, integrando Rapidoc e Asaas do convite à consulta.
+            pagamentos e prontidão do time médico em um ambiente único, integrando prontuário clínico e Asaas do convite à consulta.
           </p>
           <div className="flex flex-col gap-3 sm:flex-row">
             <Link
@@ -57,7 +57,7 @@ export default function Home() {
             </li>
             <li className="rounded-xl border border-emerald-100 bg-white/80 p-3 shadow-sm">
               <strong className="text-emerald-700">2. Cadastro da família</strong>
-              <span className="block text-xs text-zinc-500">Integração automática Rapidoc + Firestore com orientações passo a passo.</span>
+              <span className="block text-xs text-zinc-500">Integração automática com prontuário clínico e Firestore com orientações passo a passo.</span>
             </li>
             <li className="rounded-xl border border-emerald-100 bg-white/80 p-3 shadow-sm">
               <strong className="text-emerald-700">3. Consulta garantida</strong>
@@ -91,7 +91,7 @@ export default function Home() {
           <ul className="space-y-2 text-sm text-zinc-600">
             <li>• Linha do tempo de pagamentos com faturas e recibos disponíveis a qualquer momento.</li>
             <li>• Cadastro inteligente de dependentes, vínculos e permissões em um só fluxo.</li>
-            <li>• Agendamentos rápidos com confirmação imediata na Rapidoc e notificações por e-mail.</li>
+            <li>• Agendamentos rápidos com confirmação imediata no prontuário clínico e notificações por e-mail.</li>
             <li>• Área pessoal com atualização de perfil, documentos e canais de atendimento.</li>
           </ul>
         </div>
@@ -99,7 +99,7 @@ export default function Home() {
           <h2 className="text-2xl font-semibold text-zinc-900">E o time administrativo acompanha tudo</h2>
           <ul className="space-y-2 text-sm text-zinc-600">
             <li>• Monitoramento de beneficiários ativos e inativos em tempo real.</li>
-            <li>• Consulta aos agendamentos e encaminhamentos diretamente da Rapidoc.</li>
+            <li>• Consulta aos agendamentos e encaminhamentos diretamente do prontuário digital.</li>
             <li>• Ferramentas de auditoria financeira com status e conciliação do Asaas.</li>
             <li>• Estrutura modular pronta para integrações adicionais e expansão de serviços.</li>
           </ul>

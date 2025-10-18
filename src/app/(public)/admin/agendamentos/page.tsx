@@ -111,7 +111,7 @@ export default function AdminAgendamentosPage() {
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-lg font-semibold text-zinc-900">Monitoramento da agenda</h2>
-            <p className="text-sm text-zinc-600">Consulta direta à API Rapidoc para auditar status de atendimentos.</p>
+            <p className="text-sm text-zinc-600">Consulta direta à API do prontuario clinico para auditar status de atendimentos.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-xs">
             <select
@@ -139,7 +139,7 @@ export default function AdminAgendamentosPage() {
         {message && <p className="mt-3 text-sm text-emerald-600">{message}</p>}
         <p className="mt-3 text-xs text-zinc-500">
           {loading
-            ? 'Sincronizando com Rapidoc…'
+            ? 'Sincronizando com o prontuario…'
             : `${filtered.length} agendamentos exibidos de ${appointments.length} totais.`}
         </p>
       </section>

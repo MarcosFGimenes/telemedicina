@@ -330,7 +330,7 @@ export default function PlanChangeDialog({
                 )}
                 {status?.currentPlanServiceType && (
                   <p className="mt-1 text-[10px] uppercase tracking-wide text-emerald-500">
-                    Codigo Rapidoc: {status.currentPlanServiceType}
+                    Código interno: {status.currentPlanServiceType}
                   </p>
                 )}
                 <p className="mt-2 text-xs text-emerald-600">

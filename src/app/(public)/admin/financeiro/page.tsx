@@ -84,7 +84,7 @@ export default function AdminFinanceiroPage() {
         <h2 className="text-lg font-semibold text-zinc-900">Auditoria financeira</h2>
         <p className="mt-1 text-sm text-zinc-600">
           Utilize o paymentId gerado pelo Asaas para consultar o status do pagamento e, quando confirmado, finalizar o fluxo de
-          ativação automática do beneficiário na Rapidoc.
+          ativação automática do beneficiário no prontuario clínico.
         </p>
         <div className="mt-4 grid gap-3 sm:grid-cols-[1fr,auto]">
           <div className="space-y-2">
@@ -118,7 +118,7 @@ export default function AdminFinanceiroPage() {
       <section className="rounded-3xl border border-white/70 bg-white/90 p-6 shadow-sm">
         <h2 className="text-lg font-semibold text-zinc-900">Finalizar ativação do plano</h2>
         <p className="mt-1 text-sm text-zinc-600">
-          Após a confirmação do pagamento, finalize o beneficiário para criar automaticamente o registro Rapidoc e vincular ao
+          Após a confirmação do pagamento, finalize o beneficiário para criar automaticamente o registro no prontuario clínico e vincular ao
           titular no Firestore.
         </p>
 
@@ -165,7 +165,7 @@ export default function AdminFinanceiroPage() {
       <section className="rounded-3xl border border-dashed border-emerald-200 bg-emerald-50/40 p-6 text-sm text-emerald-700">
         <p className="font-semibold">Checklist financeiro recomendado</p>
         <ol className="mt-2 space-y-1">
-          <li>1. Gerar pagamento via Laboratório Rapidoc / checkout de teste.</li>
+          <li>1. Gerar pagamento via laboratório de integração / checkout de teste.</li>
           <li>2. Confirmar pagamento no Asaas sandbox.</li>
           <li>3. Consultar status acima para garantir confirmação.</li>
           <li>4. Finalizar beneficiário para liberar acesso imediato.</li>

@@ -53,7 +53,7 @@ export async function GET(_request: NextRequest, ctx: { params: Promise<{ cpf: s
     }
     const status = typeof (error as any)?.status === 'number' ? (error as any).status : 500;
     const message =
-      (error instanceof Error && error.message) || 'Erro inesperado ao consultar beneficiário por CPF na Rapidoc.';
+      (error instanceof Error && error.message) || 'Erro inesperado ao consultar beneficiário por CPF no prontuario clinico.';
     return jsonError('rapidoc-beneficiary-cpf-get', status, message);
   }
 }
