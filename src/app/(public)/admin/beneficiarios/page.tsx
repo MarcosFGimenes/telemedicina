@@ -6,6 +6,7 @@ import { useAuthContext } from '@/components/auth/AuthProvider';
 import PlanChangeDialog from '@/components/plan/PlanChangeDialog';
 import PaymentMethodDialog from '@/components/plan/PaymentMethodDialog';
 import { normalizeBeneficiaryRecord, type BeneficiaryRecord } from '@/utils/beneficiary';
+import { formatCpf } from '@/utils/format';
 
 type ActionResult = Record<string, unknown> | Record<string, unknown>[] | null;
 
@@ -91,6 +92,73 @@ const statusLabel = (value?: boolean | null) => {
 
 const toUpper = (value: string) => value.trim().toUpperCase();
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const readCpfDigits = (record: Record<string, unknown>) => {
+  const keys = ['cpf', 'document', 'documentNumber', 'holder'];
+  for (const key of keys) {
+    const raw = record[key];
+    if (typeof raw === 'string') {
+      const digits = raw.replace(/\D/g, '');
+      if (digits) {
+        return digits;
+      }
+    }
+  }
+  return '';
+};
+
+const arrayCandidateKeys = ['beneficiaries', 'content', 'items', 'data', 'payload', 'result'];
+
+const looksLikeBeneficiary = (record: Record<string, unknown>) => {
+  if (typeof record !== 'object' || record === null) {
+    return false;
+  }
+  const hasCpf = typeof record.cpf === 'string' && record.cpf.trim().length > 0;
+  const hasName = typeof record.name === 'string' && record.name.trim().length > 0;
+  const hasUuid =
+    (typeof record.uuid === 'string' && record.uuid.trim().length > 0) ||
+    (typeof record.id === 'string' && record.id.trim().length > 0) ||
+    (typeof record.beneficiaryUuid === 'string' && record.beneficiaryUuid.trim().length > 0);
+  return hasCpf || (hasName && hasUuid);
+};
+
+const extractRecords = (payload: unknown): Record<string, unknown>[] => {
+  if (Array.isArray(payload)) {
+    return payload.filter(isRecord);
+  }
+  if (isRecord(payload)) {
+    if (looksLikeBeneficiary(payload)) {
+      return [payload];
+    }
+    for (const key of arrayCandidateKeys) {
+      const nested = extractRecords(payload[key]);
+      if (nested.length) {
+        return nested;
+      }
+    }
+  }
+  return [];
+};
+
+const normalizeListPayload = (payload: unknown): BeneficiaryRecord[] => {
+  const list = extractRecords(payload);
+  if (!list.length) {
+    return [];
+  }
+  const unique = new Map<string, BeneficiaryRecord>();
+  for (const entry of list) {
+    const fallbackCpf = readCpfDigits(entry);
+    const normalized = normalizeBeneficiaryRecord(entry, fallbackCpf);
+    const key = normalized.uuid || `${normalized.cpf}-${normalized.name}`;
+    if (!unique.has(key)) {
+      unique.set(key, normalized);
+    }
+  }
+  return Array.from(unique.values());
+};
+
 export default function AdminBeneficiariosPage() {
   const { token } = useAuthContext();
   const [cpf, setCpf] = useState('');
@@ -106,6 +174,9 @@ export default function AdminBeneficiariosPage() {
   const [updating, setUpdating] = useState(false);
   const [showPlanChange, setShowPlanChange] = useState(false);
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
+  const [loadingAll, setLoadingAll] = useState(false);
+  const [allError, setAllError] = useState('');
+  const [allBeneficiaries, setAllBeneficiaries] = useState<BeneficiaryRecord[]>([]);
 
   const updateFormFromBeneficiary = (beneficiary: BeneficiaryRecord | null) => {
     if (!beneficiary) {
@@ -298,6 +369,43 @@ export default function AdminBeneficiariosPage() {
     }
   };
 
+  const loadAllBeneficiaries = async () => {
+    setLoadingAll(true);
+    setAllError('');
+    try {
+      const { data: response } = await axios.get('/api/rapidoc/beneficiaries');
+      const normalized = normalizeListPayload(response);
+      const sorted = [...normalized].sort((a, b) => {
+        const nameA = a.name?.toLocaleLowerCase?.() ?? '';
+        const nameB = b.name?.toLocaleLowerCase?.() ?? '';
+        if (nameA < nameB) return -1;
+        if (nameA > nameB) return 1;
+        return 0;
+      });
+      setAllBeneficiaries(sorted);
+    } catch (error: any) {
+      setAllError(error?.response?.data?.message || error?.message || 'Falha ao carregar beneficiários.');
+    } finally {
+      setLoadingAll(false);
+    }
+  };
+
+  const handleSelectFromList = (beneficiary: BeneficiaryRecord) => {
+    setSelected(beneficiary);
+    setBeneficiaryId(beneficiary.uuid || '');
+    if (beneficiary.cpf) {
+      setCpf(beneficiary.cpf);
+      setLastCpf(beneficiary.cpf);
+    }
+    setErr('');
+    setUpdateError('');
+    setUpdateMessage('');
+    setData(beneficiary.raw || null);
+    updateFormFromBeneficiary(beneficiary);
+  };
+
+  const sortedAllBeneficiaries = allBeneficiaries;
+
   const planChangeTarget = useMemo(() => {
     const uuid = selected?.uuid || beneficiaryId || '';
     const targetCpf = selected?.cpf || lastCpf || sanitizeCpf(cpf);
@@ -375,6 +483,79 @@ export default function AdminBeneficiariosPage() {
         )}
 
         {err && <p className="mt-3 text-sm text-red-600">{String(err)}</p>}
+      </section>
+
+      <section className="rounded-3xl border border-white/70 bg-white/90 p-6 shadow-sm">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-zinc-900">Lista de beneficiários</h2>
+            <p className="text-sm text-zinc-600">Carregue todos os beneficiários diretamente da API Rapidoc.</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {sortedAllBeneficiaries.length > 0 && (
+              <span className="rounded-full border border-emerald-200 bg-emerald-50/70 px-3 py-1 text-xs font-semibold text-emerald-700">
+                Total: {sortedAllBeneficiaries.length}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => void loadAllBeneficiaries()}
+              disabled={loadingAll}
+              className="rounded-full bg-emerald-600 px-5 py-2 text-sm font-semibold text-white shadow transition hover:bg-emerald-700 disabled:opacity-60"
+            >
+              {loadingAll ? 'Carregando…' : 'Atualizar lista'}
+            </button>
+          </div>
+        </div>
+
+        {allError && <p className="mt-3 text-sm text-red-600">{allError}</p>}
+
+        <div className="mt-4 max-h-[420px] overflow-hidden rounded-2xl border border-white/70">
+          <div className="max-h-[420px] overflow-y-auto">
+            <table className="min-w-full divide-y divide-emerald-100 text-sm">
+              <thead className="bg-emerald-50/80">
+                <tr>
+                  <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-emerald-700">
+                    Nome
+                  </th>
+                  <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-emerald-700">
+                    CPF
+                  </th>
+                  <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-emerald-700">
+                    UUID
+                  </th>
+                  <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-emerald-700">
+                    Status
+                  </th>
+                  <th scope="col" className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-emerald-700">
+                    Plano
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-emerald-50 bg-white/80">
+                {sortedAllBeneficiaries.map((beneficiary) => (
+                  <tr
+                    key={beneficiary.uuid || `${beneficiary.cpf}-${beneficiary.name}`}
+                    onClick={() => handleSelectFromList(beneficiary)}
+                    className="cursor-pointer transition hover:bg-emerald-50/60"
+                  >
+                    <td className="px-4 py-3 font-medium text-emerald-900">{beneficiary.name}</td>
+                    <td className="px-4 py-3 text-emerald-700">{beneficiary.cpf ? formatCpf(beneficiary.cpf) : '—'}</td>
+                    <td className="px-4 py-3 text-emerald-700">{beneficiary.uuid || '—'}</td>
+                    <td className="px-4 py-3 text-emerald-700">{statusLabel(beneficiary.isActive)}</td>
+                    <td className="px-4 py-3 text-emerald-700">{beneficiary.serviceType || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {!sortedAllBeneficiaries.length && !loadingAll && !allError && (
+          <p className="mt-3 text-sm text-emerald-700">
+            Clique em “Atualizar lista” para consultar os beneficiários disponíveis na Rapidoc.
+          </p>
+        )}
       </section>
 
       {selected && (
