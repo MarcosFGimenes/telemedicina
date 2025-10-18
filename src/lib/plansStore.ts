@@ -5,6 +5,17 @@ import type { PlanDefinition, PlanPayload, PlanUpdatePayload } from '@/types/pla
 
 const PLANS_COLLECTION = 'plans';
 
+const normalizeDocumentId = (name: string) => {
+  const trimmed = name.trim();
+  if (!trimmed) {
+    throw new Error('O nome do plano é obrigatório.');
+  }
+  if (trimmed.includes('/')) {
+    throw new Error('O nome do plano não pode conter "/".');
+  }
+  return trimmed;
+};
+
 const toISOString = (value: unknown, fallback: string) => {
   if (typeof value === 'string' && value.trim().length > 0) {
     return value;
@@ -34,8 +45,10 @@ const extractNumericalValue = (input: unknown): number => {
 const normalizePlanDoc = (doc: QueryDocumentSnapshot | DocumentSnapshot): PlanDefinition => {
   const data = (doc.data() || {}) as Record<string, unknown>;
   const now = new Date().toISOString();
-  const serviceType = String(data.serviceType || data.id || doc.id || '').trim().toUpperCase();
-  const id = String(data.id || serviceType || doc.id || '').trim().toUpperCase() || serviceType;
+  const storedServiceType = String(data.serviceType || '').trim().toUpperCase();
+  const storedId = String(data.id || '').trim().toUpperCase();
+  const serviceType = storedServiceType || storedId || String(doc.id || '').trim().toUpperCase();
+  const id = storedId || storedServiceType || serviceType;
   const name = String(data.name || '').trim();
   const description = String(data.description || '').trim();
   const value = extractNumericalValue(data.value);
@@ -55,6 +68,7 @@ const normalizePlanDoc = (doc: QueryDocumentSnapshot | DocumentSnapshot): PlanDe
   ) || `plano-${fallbackSlug}`;
 
   return {
+    documentId: doc.id,
     slug,
     id: id || serviceType,
     serviceType: serviceType || id,
@@ -236,14 +250,16 @@ export async function createPlan(payload: PlanPayload): Promise<PlanDefinition> 
     throw new Error('O código do plano é obrigatório.');
   }
 
-  const existing = await findPlanDoc(id);
-  if (existing) {
-    throw new Error('Já existe um plano com esse código.');
-  }
-
   const name = payload.name.trim();
   if (!name) {
     throw new Error('O nome do plano é obrigatório.');
+  }
+
+  const documentId = normalizeDocumentId(name);
+  const docRef = db.collection(PLANS_COLLECTION).doc(documentId);
+  const docSnapshot = await docRef.get();
+  if (docSnapshot.exists) {
+    throw new Error('Já existe um plano com esse nome.');
   }
 
   const value = Number(payload.value);
@@ -273,7 +289,6 @@ export async function createPlan(payload: PlanPayload): Promise<PlanDefinition> 
     updatedAt: now,
   };
 
-  const docRef = db.collection(PLANS_COLLECTION).doc(id);
   await docRef.set(data);
 
   const created = await docRef.get();
@@ -292,6 +307,9 @@ export async function updatePlan(id: string, payload: PlanUpdatePayload): Promis
   if (!name) {
     throw new Error('O nome do plano é obrigatório.');
   }
+
+  const documentId = normalizeDocumentId(name);
+  const willRenameDocument = documentId !== doc.id;
 
   const value =
     payload.value !== undefined
@@ -318,16 +336,44 @@ export async function updatePlan(id: string, payload: PlanUpdatePayload): Promis
 
   const updatedAt = new Date().toISOString();
 
-  await doc.ref.update({
-    name,
-    value,
-    description,
-    maxDependents,
+  if (!willRenameDocument) {
+    await doc.ref.update({
+      name,
+      value,
+      description,
+      maxDependents,
+      slug,
+      updatedAt,
+    });
+
+    const refreshed = await doc.ref.get();
+    return normalizePlanDoc(refreshed);
+  }
+
+  const newDocRef = db.collection(PLANS_COLLECTION).doc(documentId);
+  const collision = await newDocRef.get();
+  if (collision.exists) {
+    throw new Error('Já existe um plano com esse nome.');
+  }
+
+  const baseData = (doc.data() || {}) as Record<string, unknown>;
+
+  await newDocRef.set({
+    ...baseData,
+    id: current.id,
+    serviceType: current.serviceType || current.id,
     slug,
+    name,
+    description,
+    value,
+    maxDependents,
+    createdAt: baseData.createdAt ?? current.createdAt,
     updatedAt,
   });
 
-  const refreshed = await doc.ref.get();
+  await doc.ref.delete();
+
+  const refreshed = await newDocRef.get();
   return normalizePlanDoc(refreshed);
 }
 

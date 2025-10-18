@@ -1,5 +1,9 @@
 export type PlanDefinition = {
   /**
+   * Identificador do documento na coleção do Firestore.
+   */
+  documentId: string;
+  /**
    * Slug utilizado para construir a URL pública do plano.
    */
   slug: string;
