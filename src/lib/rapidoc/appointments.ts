@@ -93,6 +93,39 @@ const composeDateTimeFromParts = (
   return trimmedDate;
 };
 
+const formatDateLabel = (value?: string | null): string | null => {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(trimmed)) {
+    return trimmed;
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    const [year, month, day] = trimmed.split('-');
+    return `${day}/${month}/${year}`;
+  }
+  const date = new Date(trimmed);
+  if (!Number.isNaN(date.getTime())) {
+    try {
+      return new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short' }).format(date);
+    } catch {
+      return trimmed;
+    }
+  }
+  return trimmed;
+};
+
+const formatTimeLabel = (value?: string | null): string | null => {
+  if (!value) return null;
+  const sanitized = sanitizeTimeFragment(value);
+  if (sanitized) {
+    const [hour = '00', minute = '00'] = sanitized.split(':');
+    return `${hour}:${minute}`;
+  }
+  const trimmed = value.trim();
+  return trimmed || null;
+};
+
 export const parseAppointments = (raw: unknown): AppointmentListItem[] => {
   const containers: Record<string, unknown>[] = [];
   const queue: unknown[] = [raw];
@@ -205,6 +238,17 @@ export const appointmentDateFrom = (item: AppointmentListItem): Date | null => {
 };
 
 export const formatAppointmentDateTime = (item: AppointmentListItem): string => {
+  const friendlyDate = formatDateLabel(item.dateLabel);
+  const friendlyTime = formatTimeLabel(item.timeLabel);
+  if (friendlyDate && friendlyTime) {
+    return `${friendlyDate} às ${friendlyTime}`;
+  }
+  if (friendlyDate) {
+    return friendlyDate;
+  }
+  if (friendlyTime) {
+    return friendlyTime;
+  }
   const date = appointmentDateFrom(item);
   if (date) {
     try {
