@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 
 type PlanOption = {
+  documentId?: string;
   id: string;
   name: string;
   description: string;
@@ -131,6 +132,7 @@ export default function PlanChangeDialog({
         }
         setPlans(
           (plansJson as any[]).map((plan) => ({
+            documentId: plan.documentId ? String(plan.documentId) : undefined,
             id: String(plan.id || plan.serviceType || '').toUpperCase(),
             name: String(plan.name || ''),
             description: String(plan.description || ''),
@@ -350,7 +352,7 @@ export default function PlanChangeDialog({
                   const disabled = (status && !status.canChange) || submitting;
                   return (
                     <button
-                      key={plan.id}
+                      key={plan.documentId || plan.slug || `${plan.id}-${plan.name}`}
                       type="button"
                       onClick={() => setSelectedPlanId(plan.id)}
                       disabled={disabled}

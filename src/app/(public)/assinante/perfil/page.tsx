@@ -612,7 +612,10 @@ export default function PerfilPage() {
                   >
                     <option value="">Selecione…</option>
                     {plans.map((plan) => (
-                      <option key={plan.id} value={plan.id}>
+                      <option
+                        key={plan.documentId || plan.slug || `${plan.id}-${plan.name}`}
+                        value={plan.id}
+                      >
                         {plan.name} • {formatCurrency(plan.value)}
                       </option>
                     ))}
@@ -655,7 +658,7 @@ export default function PerfilPage() {
             <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {plans.map((option) => (
                 <button
-                  key={option.id}
+                  key={option.documentId || option.slug || `${option.id}-${option.name}`}
                   onClick={() => {
                     setSelectedPlanId(option.id);
                   }}

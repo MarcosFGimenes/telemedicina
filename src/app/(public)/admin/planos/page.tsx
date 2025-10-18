@@ -37,7 +37,7 @@ export default function AdminPlansPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [form, setForm] = useState<FormState>(emptyForm);
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingDocumentId, setEditingDocumentId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [origin, setOrigin] = useState('');
 
@@ -75,7 +75,7 @@ export default function AdminPlansPage() {
 
   const resetForm = () => {
     setForm(emptyForm);
-    setEditingId(null);
+    setEditingDocumentId(null);
   };
 
   const slugPreview = useMemo(() => {
@@ -137,8 +137,8 @@ export default function AdminPlansPage() {
 
     try {
       setSubmitting(true);
-      const endpoint = editingId ? `/api/plans/${editingId}` : '/api/plans';
-      const method = editingId ? 'PUT' : 'POST';
+      const endpoint = editingDocumentId ? `/api/plans/${encodeURIComponent(editingDocumentId)}` : '/api/plans';
+      const method = editingDocumentId ? 'PUT' : 'POST';
       const res = await fetch(endpoint, {
         method,
         headers: { 'Content-Type': 'application/json' },
@@ -149,7 +149,7 @@ export default function AdminPlansPage() {
         throw new Error(extractErrorMessage(data, 'Não foi possível salvar o plano.'));
       }
       await loadPlans();
-      setSuccess(editingId ? 'Plano atualizado com sucesso.' : 'Plano criado com sucesso.');
+      setSuccess(editingDocumentId ? 'Plano atualizado com sucesso.' : 'Plano criado com sucesso.');
       resetForm();
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : 'Falha ao salvar plano.');
@@ -159,7 +159,7 @@ export default function AdminPlansPage() {
   };
 
   const startEdit = (plan: PlanDefinition) => {
-    setEditingId(plan.id);
+    setEditingDocumentId(plan.documentId);
     setForm({
       id: plan.id,
       name: plan.name,
@@ -181,12 +181,12 @@ export default function AdminPlansPage() {
       setSubmitting(true);
       setError('');
       setSuccess('');
-      const res = await fetch(`/api/plans/${plan.id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/plans/${encodeURIComponent(plan.documentId)}`, { method: 'DELETE' });
       const data = await res.json().catch(() => null);
       if (!res.ok) {
         throw new Error(extractErrorMessage(data, 'Falha ao remover o plano.'));
       }
-      if (editingId === plan.id) {
+      if (editingDocumentId === plan.documentId) {
         resetForm();
       }
       await loadPlans();
@@ -199,8 +199,10 @@ export default function AdminPlansPage() {
   };
 
   const header = useMemo(() => {
-    return editingId ? `Editando plano ${editingId}` : 'Cadastrar novo plano';
-  }, [editingId]);
+    return editingDocumentId
+      ? `Editando plano ${form.name || editingDocumentId}`
+      : 'Cadastrar novo plano';
+  }, [editingDocumentId, form.name]);
 
   return (
     <div className="space-y-6">
@@ -218,7 +220,7 @@ export default function AdminPlansPage() {
               value={form.id}
               onChange={(event) => handleChange('id', event.target.value.toUpperCase())}
               placeholder="Ex.: GS"
-              disabled={Boolean(editingId)}
+              disabled={Boolean(editingDocumentId)}
             />
             <p className="text-xs text-zinc-500">Use o mesmo código utilizado pelo prontuario clinico.</p>
           </div>
@@ -286,9 +288,9 @@ export default function AdminPlansPage() {
               disabled={submitting}
               className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-60"
             >
-              {editingId ? 'Salvar alterações' : 'Cadastrar plano'}
+              {editingDocumentId ? 'Salvar alterações' : 'Cadastrar plano'}
             </button>
-            {editingId && (
+            {editingDocumentId && (
               <button
                 type="button"
                 onClick={resetForm}
@@ -346,7 +348,7 @@ export default function AdminPlansPage() {
                   const planHref = `/assinar/${plan.slug}`;
                   const planDisplayUrl = origin ? `${origin}${planHref}` : planHref;
                   return (
-                    <tr key={plan.id} className="bg-white/80">
+                    <tr key={plan.documentId} className="bg-white/80">
                       <td className="px-4 py-3 font-mono text-xs uppercase text-zinc-500">{plan.id}</td>
                       <td className="px-4 py-3 font-medium text-zinc-700">{plan.name}</td>
                       <td className="px-4 py-3">
