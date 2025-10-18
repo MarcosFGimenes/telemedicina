@@ -163,14 +163,30 @@ export default function AssinanteDependentesPage() {
       );
       const serviceTypeRaw = typeof data?.serviceType === 'string' ? data.serviceType : '';
       const normalizedServiceType = serviceTypeRaw.trim().toUpperCase();
+      const responseUuid = readString(data?.uuid).trim();
+      const nextUuid = responseUuid || target.uuid;
       setManageServiceType(normalizedServiceType);
       setManageStatus('success');
+      setManageTarget((prev) => {
+        if (!prev) return prev;
+        if (prev.uuid === target.uuid) {
+          return { ...prev, uuid: nextUuid, serviceType: normalizedServiceType || prev.serviceType };
+        }
+        if (nextUuid !== target.uuid && prev.uuid === nextUuid) {
+          return { ...prev, serviceType: normalizedServiceType || prev.serviceType };
+        }
+        return prev;
+      });
       setDependents((prev) =>
-        prev.map((item) =>
-          item.uuid === target.uuid
-            ? { ...item, serviceType: normalizedServiceType || item.serviceType }
-            : item,
-        ),
+        prev.map((item) => {
+          if (item.uuid === target.uuid) {
+            return { ...item, uuid: nextUuid, serviceType: normalizedServiceType || item.serviceType };
+          }
+          if (nextUuid !== target.uuid && item.uuid === nextUuid) {
+            return { ...item, serviceType: normalizedServiceType || item.serviceType };
+          }
+          return item;
+        }),
       );
     } catch (error: unknown) {
       const message = extractErrorMessage(

@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, db } from '@/lib/firebaseAdmin';
+import { FieldValue } from 'firebase-admin/firestore';
 import {
   onlyDigits,
   rapidocGetBeneficiary,
+  rapidocFindByCpf,
   rapidocUpdateBeneficiary,
 } from '@/lib/rapidocService';
 import { normalizeBeneficiaryRecord } from '@/utils/beneficiary';
@@ -70,16 +72,18 @@ export async function POST(req: NextRequest) {
   try {
     const decoded = await requireAuth(req);
     const body = (await req.json()) as { uuid?: string } | null;
-    const uuid = typeof body?.uuid === 'string' ? body.uuid.trim() : '';
-    if (!uuid) {
+    const originalUuid = typeof body?.uuid === 'string' ? body.uuid.trim() : '';
+    if (!originalUuid) {
       return NextResponse.json({ error: 'missing_uuid' }, { status: 400 });
     }
+
+    let targetUuid = originalUuid;
 
     const ownerUid = decoded.uid;
     const dependentSnap = await db
       .collection('dependents')
       .where('ownerUid', '==', ownerUid)
-      .where('uuid', '==', uuid)
+      .where('uuid', '==', originalUuid)
       .limit(1)
       .get();
 
@@ -133,16 +137,37 @@ export async function POST(req: NextRequest) {
 
     const dependentDoc = dependentSnap.docs[0];
     const dependentData = (dependentDoc.data() as Record<string, unknown>) || {};
-    const rapidocDependent = await rapidocGetBeneficiary(uuid);
+
+    const storedCpf = pickDigits(
+      dependentData['cpf'],
+      dependentData['document'],
+      dependentData['holder'],
+      dependentData['holderCpf'],
+    );
+
+    let rapidocDependent = await rapidocGetBeneficiary(targetUuid).catch(() => null);
+
+    if (!rapidocDependent && storedCpf) {
+      const resolved = await rapidocFindByCpf(storedCpf).catch(() => null);
+      if (resolved) {
+        rapidocDependent = resolved;
+        const resolvedUuid =
+          readTrimmed((resolved as Record<string, unknown>)['uuid']) ||
+          readTrimmed((resolved as Record<string, unknown>)['id']) ||
+          readTrimmed((resolved as Record<string, unknown>)['beneficiaryUuid']) ||
+          readTrimmed((resolved as Record<string, unknown>)['beneficiaryId']);
+        if (resolvedUuid) {
+          targetUuid = resolvedUuid;
+        }
+      }
+    }
+
     if (!rapidocDependent) {
       return NextResponse.json({ error: 'dependent_beneficiary_not_found' }, { status: 404 });
     }
 
     const fallbackCpf = pickDigits(
-      dependentData['cpf'],
-      dependentData['document'],
-      dependentData['holder'],
-      dependentData['holderCpf'],
+      storedCpf,
       (rapidocDependent as Record<string, unknown>)['cpf'],
       (rapidocDependent as Record<string, unknown>)['document'],
       (rapidocDependent as Record<string, unknown>)['holder'],
@@ -235,14 +260,13 @@ export async function POST(req: NextRequest) {
       dependentData['paymentType'],
       rawDependent['paymentType'],
       rawDependent['payment_type'],
-    );
-    payload.paymentType = (paymentType || 'S').toUpperCase();
+    ).toUpperCase();
+    payload.paymentType = paymentType && ['S', 'A'].includes(paymentType) ? paymentType : 'S';
 
-    const holderValue = pickString(
+    const holderValue = pickDigits(
       rawDependent['holder'],
       dependentData['holder'],
       dependentData['holderCpf'],
-      dependentData['cpf'],
       fallbackCpf,
     );
     if (holderValue) {
@@ -260,18 +284,49 @@ export async function POST(req: NextRequest) {
       payload.cpf = fallbackCpf;
     }
 
-    await rapidocUpdateBeneficiary(uuid, payload);
+    if (typeof payload.phone === 'string') {
+      const digits = onlyDigits(payload.phone);
+      payload.phone = digits || null;
+    }
+    if (typeof payload.zipCode === 'string') {
+      const digits = onlyDigits(payload.zipCode);
+      payload.zipCode = digits || null;
+    }
 
-    await dependentDoc.ref.set(
-      {
-        serviceType,
-        planServiceType: serviceType,
-        updatedAt: new Date(),
-      },
-      { merge: true },
-    );
+    await rapidocUpdateBeneficiary(targetUuid, payload);
 
-    return NextResponse.json({ ok: true, serviceType });
+    const dependentUpdates: Record<string, unknown> = {
+      serviceType,
+      planServiceType: serviceType,
+      serviceTypeSyncedAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    if (fallbackCpf) {
+      dependentUpdates.cpf = fallbackCpf;
+    }
+
+    if (targetUuid !== originalUuid) {
+      dependentUpdates.uuid = targetUuid;
+      dependentUpdates.syncedUuidAt = new Date();
+    }
+
+    await dependentDoc.ref.set(dependentUpdates, { merge: true });
+
+    if (targetUuid !== originalUuid) {
+      if (userDoc) {
+        await userDoc.ref.set(
+          { dependentUuids: FieldValue.arrayRemove(originalUuid) },
+          { merge: true },
+        );
+        await userDoc.ref.set(
+          { dependentUuids: FieldValue.arrayUnion(targetUuid), updatedAt: new Date() },
+          { merge: true },
+        );
+      }
+    }
+
+    return NextResponse.json({ ok: true, serviceType, uuid: targetUuid });
   } catch (error: unknown) {
     let status = 500;
     let message = 'failed';
