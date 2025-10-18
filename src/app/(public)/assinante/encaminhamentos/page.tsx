@@ -125,7 +125,7 @@ export default function AssinanteEncaminhamentosPage() {
   const emptyState = !referrals.length && !loadingReferrals;
   const subtitle = useMemo(() => {
     if (!beneficiaryUuid) return 'Identifique o beneficiario para listar encaminhamentos.';
-    if (loadingReferrals) return 'Sincronizando encaminhamentos diretamente da Rapidoc.';
+    if (loadingReferrals) return 'Sincronizando encaminhamentos diretamente do prontuario digital.';
     return 'Selecione um encaminhamento para abrir o documento completo.';
   }, [beneficiaryUuid, loadingReferrals]);
 
@@ -135,7 +135,7 @@ export default function AssinanteEncaminhamentosPage() {
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">
-              Encaminhamentos Rapidoc
+            Encaminhamentos sincronizados
             </p>
             <h2 className="text-2xl font-semibold text-zinc-900">Documentos liberados</h2>
             <p className="text-sm text-zinc-500">{subtitle}</p>
@@ -191,7 +191,7 @@ export default function AssinanteEncaminhamentosPage() {
       <section className="rounded-3xl border border-white/80 bg-white/90 p-6 shadow-sm">
         {emptyState && (
           <p className="text-sm text-zinc-500">
-            Nenhum encaminhamento disponivel no momento. Assim que a Rapidoc liberar um novo
+            Nenhum encaminhamento disponivel no momento. Assim que o prontuario liberar um novo
             documento ele aparecera automaticamente aqui.
           </p>
         )}

@@ -110,7 +110,7 @@ export default function FirstAccessPage() {
       setBirthday('');
     } catch (error) {
       console.error('[primeiro-acesso][lookup]', error);
-      setLookupError('Falha ao consultar a Rapidoc. Tente novamente em instantes.');
+      setLookupError('Falha ao consultar o prontuario integrado. Tente novamente em instantes.');
     } finally {
       setLoadingCpf(false);
     }
@@ -270,7 +270,7 @@ export default function FirstAccessPage() {
         <form onSubmit={handleCreateAccount} className="card space-y-6 border-emerald-100 p-6">
           <div className="space-y-3">
             <p className="text-sm text-emerald-700">
-              Encontramos o beneficiario na Rapidoc. Confira os dados abaixo antes de criar sua conta.
+              Encontramos o beneficiario no prontuario digital. Confira os dados abaixo antes de criar sua conta.
             </p>
             <div className="grid gap-3 md:grid-cols-2">
               <div>

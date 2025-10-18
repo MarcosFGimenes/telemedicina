@@ -183,12 +183,12 @@ export default function CancelarPlanoPage() {
       const res = await fetch(url);
       const data = await res.json().catch(() => null);
       if (!res.ok) {
-        throw new Error((data as ApiErrorResponse)?.message || 'Falha ao carregar dados da Rapidoc.');
+        throw new Error((data as ApiErrorResponse)?.message || 'Falha ao carregar dados do prontuario clinico.');
       }
       setBeneficiary((data || null) as Beneficiary | null);
     } catch (error) {
       setBeneficiary(null);
-      setBeneficiaryError(getErrorMessage(error, 'Não foi possível carregar dados da Rapidoc.'));
+      setBeneficiaryError(getErrorMessage(error, 'Não foi possível carregar dados do prontuario clinico.'));
     } finally {
       setLoadingBeneficiary(false);
     }
@@ -311,7 +311,7 @@ export default function CancelarPlanoPage() {
             <h1 className="text-lg font-semibold text-zinc-900">Solicitar cancelamento do plano</h1>
             <p className="text-sm text-zinc-600">
               Ao solicitar o cancelamento, sua assinatura permanecerá ativa até o último dia útil do mês corrente. Após essa
-              data, o beneficiário Rapidoc será inativado automaticamente.
+              data, o beneficiário sincronizado será inativado automaticamente.
             </p>
           </div>
           <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50/80 px-3 py-1 text-xs font-semibold text-emerald-700">
@@ -362,7 +362,7 @@ export default function CancelarPlanoPage() {
               <ul className="mt-3 list-disc space-y-2 pl-4">
                 <li>Novas cobranças no Asaas serão suspensas imediatamente.</li>
                 <li>
-                  O beneficiário Rapidoc permanecerá ativo até o último dia útil do mês e será inativado automaticamente após essa
+                  O beneficiário sincronizado permanecerá ativo até o último dia útil do mês e será inativado automaticamente após essa
                   data.
                 </li>
                 <li>Após o cancelamento efetivo, a reativação só poderá ser feita pelo time de atendimento.</li>

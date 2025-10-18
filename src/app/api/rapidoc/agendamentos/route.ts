@@ -26,7 +26,7 @@ export async function GET() {
         (typeof upstreamData === 'object' && upstreamData !== null &&
           typeof (upstreamData as Record<string, unknown>).message === 'string'
           ? (upstreamData as Record<string, unknown>).message
-          : '') || error.message || 'Falha ao consultar agendamentos na Rapidoc.';
+          : '') || error.message || 'Falha ao consultar agendamentos no prontuario clinico.';
 
       return NextResponse.json(
         { hint: 'rapidoc-appointment-list', upstreamStatus, message, upstream: upstreamData },
@@ -110,7 +110,7 @@ export async function POST(req: NextRequest) {
       const status = upstreamStatus === 200 ? 502 : upstreamStatus;
       const upstreamData = error.response?.data ?? null;
 
-      let message = error.message || 'Falha ao agendar na Rapidoc.';
+      let message = error.message || 'Falha ao agendar no prontuario clinico.';
       if (typeof upstreamData === 'object' && upstreamData !== null) {
         const container = upstreamData as Record<string, unknown>;
         if (typeof container.message === 'string' && container.message.trim()) {

@@ -68,7 +68,7 @@ const metaByRoute: Record<string, SubscriberMeta> = {
   },
   '/assinante/encaminhamentos': {
     title: 'Encaminhamentos do beneficiario',
-    description: 'Visualize e baixe encaminhamentos ativos diretamente da Rapidoc.',
+    description: 'Visualize e baixe encaminhamentos ativos diretamente do prontuario integrado.',
   },
   '/assinante/imediato': {
     title: 'Atendimento imediato',
@@ -143,7 +143,7 @@ export default function AssinanteLayout({ children }: { children: React.ReactNod
         <header className="rounded-3xl border border-white/70 bg-white/90 p-4 shadow-sm sm:p-6">
           <div className="flex items-center justify-between gap-4">
             <Link href="/assinante/dashboard" className="flex items-center gap-4">
-              <Image src="/logo.png" alt="Rapidoc" width={180} height={60} className="h-12 w-auto" priority />
+              <Image src="/logo.png" alt="Portal do assinante" width={180} height={60} className="h-12 w-auto" priority />
             </Link>
 
             <nav className="hidden items-center gap-1 lg:flex">
@@ -233,7 +233,7 @@ export default function AssinanteLayout({ children }: { children: React.ReactNod
                 </div>
                 {snapshot?.beneficiaryUuid && (
                   <p className="text-[11px] text-zinc-500">
-                    Titular Rapidoc: <span className="font-mono text-xs">{snapshot.beneficiaryUuid}</span>
+                  Titular vinculado: <span className="font-mono text-xs">{snapshot.beneficiaryUuid}</span>
                   </p>
                 )}
               </div>

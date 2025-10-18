@@ -528,7 +528,7 @@ export async function POST(req: NextRequest) {
       } catch (error) {
         console.error('[plan/change][rapidoc][update]', beneficiaryUuid, error);
         return NextResponse.json(
-          { error: 'rapidoc_update_failed', message: 'Não foi possível atualizar o beneficiário na Rapidoc.' },
+          { error: 'rapidoc_update_failed', message: 'Não foi possível atualizar o beneficiário no prontuario clinico.' },
           { status: 502 },
         );
       }
@@ -546,7 +546,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json(
           {
             error: 'dependent_update_failed',
-            message: 'Não foi possível atualizar os dependentes na Rapidoc.',
+            message: 'Não foi possível atualizar os dependentes no prontuario clinico.',
             failedDependents: failures,
           },
           { status: 502 },

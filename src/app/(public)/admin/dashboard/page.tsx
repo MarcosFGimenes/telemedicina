@@ -85,7 +85,7 @@ export default function AdminDashboardPage() {
           <div>
             <h2 className="text-lg font-semibold text-zinc-900">Visão geral operacional</h2>
             <p className="text-sm text-zinc-600">
-              Acompanhe em tempo real o status dos beneficiários, consultas e encaminhamentos conectados à Rapidoc.
+              Acompanhe em tempo real o status dos beneficiários, consultas e encaminhamentos conectados ao prontuario clínico.
             </p>
           </div>
           <button
@@ -120,7 +120,7 @@ export default function AdminDashboardPage() {
 
         <p className="mt-4 text-xs text-zinc-500">
           {loading
-            ? 'Consultando Rapidoc…'
+            ? 'Consultando prontuario…'
             : `Última sincronização: ${metrics.lastSync ? new Date(metrics.lastSync).toLocaleString('pt-BR') : '—'}`}
         </p>
       </section>
@@ -153,7 +153,7 @@ export default function AdminDashboardPage() {
         <ol className="mt-3 space-y-2 text-sm text-zinc-600">
           <li>1. Confirmar pagamentos recentes via Asaas antes de liberar novos acessos.</li>
           <li>2. Revisar beneficiários inativos e acionar comunicação automatizada.</li>
-          <li>3. Verificar agendamentos com status pendente na Rapidoc e aprovar quando necessário.</li>
+          <li>3. Verificar agendamentos com status pendente no prontuario e aprovar quando necessário.</li>
           <li>4. Auditar encaminhamentos para garantir atendimento contínuo.</li>
         </ol>
       </section>

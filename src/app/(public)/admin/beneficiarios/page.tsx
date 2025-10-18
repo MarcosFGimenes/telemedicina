@@ -489,7 +489,7 @@ export default function AdminBeneficiariosPage() {
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-lg font-semibold text-zinc-900">Lista de beneficiários</h2>
-            <p className="text-sm text-zinc-600">Carregue todos os beneficiários diretamente da API Rapidoc.</p>
+            <p className="text-sm text-zinc-600">Carregue todos os beneficiários diretamente da API do prontuario clinico.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {sortedAllBeneficiaries.length > 0 && (
@@ -553,7 +553,7 @@ export default function AdminBeneficiariosPage() {
 
         {!sortedAllBeneficiaries.length && !loadingAll && !allError && (
           <p className="mt-3 text-sm text-emerald-700">
-            Clique em “Atualizar lista” para consultar os beneficiários disponíveis na Rapidoc.
+            Clique em “Atualizar lista” para consultar os beneficiários disponíveis no prontuario clinico.
           </p>
         )}
       </section>
@@ -569,7 +569,7 @@ export default function AdminBeneficiariosPage() {
                 <span className="rounded-full bg-white/70 px-3 py-1">UUID: {selected.uuid}</span>
                 <span className="rounded-full bg-white/70 px-3 py-1">Status: {statusLabel(selected.isActive)}</span>
                 <span className="rounded-full bg-white/70 px-3 py-1">
-                  Plano Rapidoc: {selected.serviceType ? selected.serviceType : '—'}
+                  Plano sincronizado: {selected.serviceType ? selected.serviceType : '—'}
                 </span>
                 <span className="rounded-full bg-white/70 px-3 py-1">
                   Pagamento: {paymentTypeLabel(selected.paymentType)}
@@ -685,7 +685,7 @@ export default function AdminBeneficiariosPage() {
                   </select>
                 </div>
                 <div className="space-y-2">
-                  <label className="text-xs font-semibold uppercase tracking-wide text-emerald-600">Código do plano Rapidoc</label>
+                  <label className="text-xs font-semibold uppercase tracking-wide text-emerald-600">Código do plano no prontuario</label>
                   <input
                     className="input"
                     value={form.serviceType}
@@ -715,7 +715,7 @@ export default function AdminBeneficiariosPage() {
 
       {data && (
         <section className="rounded-3xl border border-white/70 bg-white/90 p-6 shadow-sm">
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-emerald-600">Retorno da Rapidoc</h3>
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-emerald-600">Retorno da integração</h3>
           <pre className="mt-3 whitespace-pre-wrap break-all rounded-2xl border border-white/60 bg-white/80 p-4 text-[11px] leading-relaxed text-zinc-600">
             {JSON.stringify(data, null, 2)}
           </pre>
@@ -726,7 +726,7 @@ export default function AdminBeneficiariosPage() {
         <section className="rounded-3xl border border-dashed border-emerald-200 bg-emerald-50/40 p-6 text-sm text-emerald-700">
           <p>
             Consulte um CPF para visualizar o payload completo, identificar o UUID do beneficiário e executar ações de ativação
-            ou suspensão diretamente pela API Rapidoc.
+            ou suspensão diretamente pela API do prontuario clinico.
           </p>
         </section>
       )}

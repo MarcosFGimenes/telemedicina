@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
       const hint = toHint(error);
       if (hint === 'rapidoc-cpf-failed') {
         const message =
-          (error instanceof Error && error.message) || 'Falha ao consultar o beneficiario na Rapidoc.';
+          (error instanceof Error && error.message) || 'Falha ao consultar o beneficiario no prontuario clinico.';
         return NextResponse.json({ error: 'lookup_failed', message }, { status: 502 });
       }
       throw error;
@@ -196,7 +196,7 @@ export async function POST(req: NextRequest) {
       } catch (error) {
         console.error('[primeiro-acesso][beneficiario][rapidoc][create]', error);
         const message =
-          (error instanceof Error && error.message) || 'Falha ao criar beneficiario na Rapidoc.';
+          (error instanceof Error && error.message) || 'Falha ao criar beneficiario no prontuario clinico.';
         return NextResponse.json({ error: 'rapidoc_create_failed', message }, { status: 502 });
       }
 
@@ -208,7 +208,7 @@ export async function POST(req: NextRequest) {
       } catch (error) {
         console.error('[primeiro-acesso][beneficiario][rapidoc][post-lookup]', error);
         const message =
-          (error instanceof Error && error.message) || 'Falha ao consultar beneficiario recém-criado na Rapidoc.';
+          (error instanceof Error && error.message) || 'Falha ao consultar beneficiario recém-criado no prontuario clinico.';
         return NextResponse.json({ error: 'rapidoc_lookup_failed', message }, { status: 502 });
       }
 

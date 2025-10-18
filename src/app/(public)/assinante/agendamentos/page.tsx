@@ -471,7 +471,7 @@ export default function AssinanteAgendamentosPage() {
         setPatients(opts);
         if (opts.length) setBeneficiaryUuid(opts[0].uuid);
 
-        // Refina o nome do plano a partir do serviceType atual da Rapidoc do titular, se disponível
+        // Refina o nome do plano a partir do serviceType atual do prontuario do titular, se disponível
         const primaryUuid = me?.beneficiaryUuid ? String(me.beneficiaryUuid) : '';
         if (primaryUuid) {
           try {
@@ -519,7 +519,7 @@ export default function AssinanteAgendamentosPage() {
           setBeneficiarySnapshotError('');
         } else {
           setBeneficiarySnapshotError(
-            messageFromAxiosError(error, 'Falha ao carregar informações do beneficiário na Rapidoc.'),
+            messageFromAxiosError(error, 'Falha ao carregar informações do beneficiário no prontuario clinico.'),
           );
         }
       } finally {
@@ -925,7 +925,7 @@ export default function AssinanteAgendamentosPage() {
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-lg font-semibold text-zinc-900">Seus agendamentos</h2>
-            <p className="text-sm text-zinc-600">Consulte e gerencie suas consultas futuras registradas na Rapidoc.</p>
+            <p className="text-sm text-zinc-600">Consulte e gerencie suas consultas futuras registradas no prontuario digital.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-xs">
             <button
@@ -946,7 +946,7 @@ export default function AssinanteAgendamentosPage() {
           <>
             <p className="mt-3 text-xs text-zinc-500">
               {appointmentsLoading
-                ? 'Sincronizando com Rapidoc…'
+                ? 'Sincronizando com o prontuario…'
                 : upcomingAppointments.length === 1
                 ? '1 agendamento futuro encontrado.'
                 : `${upcomingAppointments.length} agendamentos futuros encontrados.`}
@@ -1029,7 +1029,7 @@ export default function AssinanteAgendamentosPage() {
         <h2 className="text-lg font-semibold text-zinc-900">Monte seu atendimento</h2>
         <p className="mt-1 text-sm text-zinc-600">
           Escolha quem será atendido, ajuste o período desejado e confirme a especialidade. A disponibilidade vem diretamente
-          da Rapidoc.
+          do prontuario integrado.
         </p>
 
         <div className="mt-6 grid gap-4 lg:grid-cols-2">
@@ -1049,14 +1049,14 @@ export default function AssinanteAgendamentosPage() {
                 <span className="font-medium text-emerald-700">{planName || 'Não identificado'}</span>
               </p>
               {loadingBeneficiarySnapshot && (
-                <p className="mt-2 text-xs text-zinc-500">Sincronizando informações do plano na Rapidoc…</p>
+                <p className="mt-2 text-xs text-zinc-500">Sincronizando informações do plano no prontuario…</p>
               )}
               {beneficiarySnapshotError && (
                 <p className="mt-2 text-xs text-red-600">{beneficiarySnapshotError}</p>
               )}
               {beneficiaryPlanSummary && !beneficiarySnapshotError && (
                 <div className="mt-3 space-y-1 rounded-xl border border-emerald-100 bg-emerald-50/80 p-3 text-xs text-emerald-700">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide">Resumo Rapidoc</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide">Resumo do prontuario</p>
                   {beneficiaryPlanSummary.name && (
                     <p className="text-sm font-semibold text-emerald-800">{beneficiaryPlanSummary.name}</p>
                   )}
@@ -1234,7 +1234,7 @@ export default function AssinanteAgendamentosPage() {
       <section className="rounded-3xl border border-white/70 bg-white/90 p-6 shadow-sm">
         <h2 className="text-lg font-semibold text-zinc-900">Confirmação do agendamento</h2>
         <p className="mt-1 text-sm text-zinc-600">
-          Revise as informações e confirme para registrar o atendimento diretamente na Rapidoc. Você também pode solicitar um
+          Revise as informações e confirme para registrar o atendimento diretamente no prontuario clínico. Você também pode solicitar um
           atendimento imediato via telemedicina quando disponível.
         </p>
 
@@ -1278,7 +1278,7 @@ export default function AssinanteAgendamentosPage() {
           <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50/80 p-4 text-sm text-emerald-700">
             <p className="text-sm font-semibold text-emerald-800">Consulta confirmada!</p>
             <p className="mt-1 text-xs text-emerald-700">
-              Acesse a sala virtual diretamente pelo link a seguir. Ele também está disponível na Rapidoc para futuras consultas.
+              Acesse a sala virtual diretamente pelo link a seguir. Ele também está disponível no prontuario para futuras consultas.
             </p>
             <a
               href={meetingUrl}
@@ -1286,7 +1286,7 @@ export default function AssinanteAgendamentosPage() {
               rel="noreferrer"
               className="mt-3 inline-flex items-center gap-2 rounded-full bg-emerald-600 px-4 py-2 text-xs font-semibold text-white shadow hover:bg-emerald-700"
             >
-              Abrir consulta na Rapidoc
+              Abrir consulta no prontuario
             </a>
           </div>
         )}
@@ -1343,7 +1343,7 @@ export default function AssinanteAgendamentosPage() {
                 rel="noreferrer"
                 className="mt-3 inline-flex items-center gap-2 rounded-full border border-emerald-600 px-4 py-2 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100"
               >
-                Acompanhar agendamento na Rapidoc
+                Acompanhar agendamento no prontuario
               </a>
             )}
           </div>

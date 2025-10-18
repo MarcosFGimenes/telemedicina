@@ -432,7 +432,7 @@ export default function AssinanteDashboard() {
             <span>{beneficiaryLoading || loading ? 'Atualizando…' : status}</span>
           </p>
           <p className="mt-3 text-xs text-zinc-500">
-            Titular Rapidoc:{' '}
+            Titular sincronizado:{' '}
             <span className="font-mono text-xs">{beneficiaryUuid || 'defina seu beneficiário'}</span>
           </p>
           <p className="mt-2 text-xs text-zinc-500">
@@ -516,7 +516,7 @@ export default function AssinanteDashboard() {
           <p className="mt-3 text-xs text-red-600">{appointmentsError}</p>
         )}
         <div className="mt-4 space-y-3">
-          {appointmentsLoading && <p className="text-sm text-zinc-500">Sincronizando com Rapidoc…</p>}
+          {appointmentsLoading && <p className="text-sm text-zinc-500">Sincronizando com o prontuario…</p>}
           {!appointmentsLoading && !upcomingPreview.length && (
             <p className="text-sm text-zinc-500">Nenhum agendamento futuro disponível no momento.</p>
           )}
