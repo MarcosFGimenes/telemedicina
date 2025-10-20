@@ -13,6 +13,7 @@ export type BeneficiaryUserRecord = {
   birthday?: string | null;
   paymentType?: string | null;
   serviceType?: string | null;
+  planId?: string | null;
   holder?: string | null;
   general?: string | null;
 };

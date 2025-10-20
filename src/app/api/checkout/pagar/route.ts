@@ -30,7 +30,8 @@ async function resolveCustomer(
   body: CheckoutRequestBody,
   cpfDigits: string,
   normalizedPaymentType: string,
-  normalizedServiceType: string,
+  rapidocServiceType: string,
+  planId: string,
   planName: string,
 ) {
   const normalizedBirthday = body.birthday?.trim() || null;
@@ -83,9 +84,9 @@ async function resolveCustomer(
     assignIfChanged('birthday', normalizedBirthday);
 
     assignIfChanged('paymentType', normalizedPaymentType);
-    assignIfChanged('serviceType', normalizedServiceType);
+    assignIfChanged('serviceType', rapidocServiceType);
     assignIfChanged('planName', planName);
-    assignIfChanged('planId', normalizedServiceType);
+    assignIfChanged('planId', planId);
 
     if (normalizedHolder) {
       assignIfChanged('holder', normalizedHolder);
@@ -130,9 +131,9 @@ async function resolveCustomer(
     state: body.state || null,
     birthday: normalizedBirthday,
     paymentType: normalizedPaymentType,
-    serviceType: normalizedServiceType,
+    serviceType: rapidocServiceType,
     planName,
-    planId: normalizedServiceType,
+    planId,
     holder: normalizedHolder || digitsOnly(body.cpf) || null,
     general: normalizedGeneral,
     asaasCustomerId: createdCustomer.id,
@@ -189,6 +190,7 @@ export async function POST(request: NextRequest) {
       body,
       cpfDigits,
       normalizedPaymentType,
+      (plan.serviceType || plan.id),
       plan.id,
       plan.name,
     );
@@ -211,7 +213,7 @@ export async function POST(request: NextRequest) {
         planId: plan.id,
         planName: plan.name,
         paymentType: normalizedPaymentType,
-        serviceType: plan.id,
+        serviceType: (plan.serviceType || plan.id),
         updatedAt: new Date(),
       });
 
@@ -252,7 +254,7 @@ export async function POST(request: NextRequest) {
       planId: plan.id,
       planName: plan.name,
       paymentType: normalizedPaymentType,
-      serviceType: plan.id,
+      serviceType: (plan.serviceType || plan.id),
       updatedAt: new Date(),
     });
 

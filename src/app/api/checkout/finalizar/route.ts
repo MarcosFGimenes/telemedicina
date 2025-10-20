@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { asaas } from '@/lib/asaas';
 import { db } from '@/lib/firebaseAdmin';
 import { getAsaasCustomer } from '@/lib/asaasService';
+import { getPlan } from '@/lib/plansStore';
 import { buildBeneficiaryPayload, type BeneficiaryUserRecord } from '@/lib/beneficiaryPayload';
 import {
   rapidocCreateOrResolveUuid,
@@ -251,6 +252,19 @@ export async function POST(request: NextRequest) {
     user: (userData as BeneficiaryUserRecord | null) ?? null,
     customer: asaasCustomer,
   });
+
+  try {
+    const candidatePlanId = String((userData as Record<string, unknown> | null)?.planId || '').trim().toUpperCase();
+    if (candidatePlanId) {
+      const plan = await getPlan(candidatePlanId);
+      const serviceType = plan?.serviceType || plan?.id || '';
+      if (serviceType) {
+        ensurePayload.serviceType = serviceType as any;
+      }
+    }
+  } catch (err) {
+    // non-fatal: fallback to existing payload serviceType
+  }
 
   logRapidocAttempt(ensurePayload);
 

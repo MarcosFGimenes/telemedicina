@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import type { FirebaseFirestore } from 'firebase-admin';
 import { adminAuth, db } from '@/lib/firebaseAdmin';
-import { listAsaasPaymentsByCustomer } from '@/lib/asaasService';
+import { listAsaasPaymentsByCustomer, getAsaasSubscription, findAsaasCustomerByCpf } from '@/lib/asaasService';
 import { getPlan } from '@/lib/plansStore';
 
 async function getAuth(req: NextRequest) {
@@ -49,9 +49,11 @@ export async function GET(req: NextRequest) {
   }
   // Enriquecimento: derivar maxDependents a partir do plano (quando ausente)
   if (userDoc && (userDoc['maxDependents'] == null || userDoc['maxDependents'] === '')) {
+    const pid = String(userDoc['planId'] || '').trim().toUpperCase();
     const st = String(userDoc['serviceType'] || '').trim().toUpperCase();
-    if (st) {
-      const plan = await getPlan(st).catch(() => null);
+    const key = pid || st;
+    if (key) {
+      const plan = await getPlan(key).catch(() => null);
       if (plan && typeof plan.maxDependents === 'number') {
         (userDoc as Record<string, unknown>)['maxDependents'] = plan.maxDependents;
       }
@@ -104,32 +106,62 @@ export async function GET(req: NextRequest) {
   }
 
   // pagamentos sincronizados direto do Asaas
-  if (asaasCustomerId) {
-    const asaasPayments = await listAsaasPaymentsByCustomer(asaasCustomerId).catch(() => []);
-    asaasPayments.forEach((payment) => {
-      if (payment.customer && payment.customer !== asaasCustomerId) {
-        return;
-      }
+  {
+    let effectiveCustomerId = asaasCustomerId;
 
-      paymentsMap.set(payment.id, {
-        id: payment.id,
-        source: 'asaas',
-        status: payment.status,
-        value: payment.value,
-        processedAt:
-          payment.updatedAt ||
-          payment.confirmedDate ||
-          payment.paymentDate ||
-          payment.creditDate ||
-          payment.dateCreated ||
-          payment.createdDate,
-        dueDate: payment.dueDate,
-        paymentDate: payment.paymentDate,
-        billingType: payment.billingType,
-        invoiceUrl: payment.invoiceUrl || payment.bankSlipUrl || payment.transactionReceiptUrl,
-        raw: payment,
+    // Se não houver customerId armazenado, tenta obter via assinatura ou CPF
+    if (!effectiveCustomerId) {
+      const lastSubscriptionId = (userDoc?.lastSubscriptionId as string | undefined) || null;
+      if (lastSubscriptionId) {
+        try {
+          const sub = await getAsaasSubscription(lastSubscriptionId);
+          if (sub?.customer) {
+            effectiveCustomerId = String(sub.customer);
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
+
+    if (!effectiveCustomerId && normalizedCpf) {
+      try {
+        const customer = await findAsaasCustomerByCpf(normalizedCpf);
+        if (customer?.id) {
+          effectiveCustomerId = customer.id;
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    if (effectiveCustomerId) {
+      const asaasPayments = await listAsaasPaymentsByCustomer(effectiveCustomerId).catch(() => []);
+      asaasPayments.forEach((payment) => {
+        if (payment.customer && payment.customer !== effectiveCustomerId) {
+          return;
+        }
+
+        paymentsMap.set(payment.id, {
+          id: payment.id,
+          source: 'asaas',
+          status: payment.status,
+          value: payment.value,
+          processedAt:
+            (payment as any).updatedAt ||
+            payment.confirmedDate ||
+            payment.paymentDate ||
+            payment.creditDate ||
+            payment.dateCreated ||
+            payment.createdDate,
+          dueDate: payment.dueDate,
+          paymentDate: payment.paymentDate,
+          billingType: payment.billingType,
+          invoiceUrl: payment.invoiceUrl || payment.bankSlipUrl || payment.transactionReceiptUrl,
+          raw: payment,
+        });
       });
-    });
+    }
   }
 
   const payments = Array.from(paymentsMap.values());

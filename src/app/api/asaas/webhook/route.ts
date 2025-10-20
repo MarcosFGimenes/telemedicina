@@ -6,6 +6,7 @@ import {
   buildBeneficiaryPayload,
   type BeneficiaryUserRecord,
 } from '@/lib/beneficiaryPayload';
+import { getPlan } from '@/lib/plansStore';
 import {
   deactivateBeneficiary,
   ensureBeneficiaryByCPF,
@@ -143,6 +144,19 @@ export async function POST(req: NextRequest) {
     user,
     customer: asaasCustomer,
   });
+
+  try {
+    const candidatePlanId = String((user as Record<string, unknown> | null)?.['planId'] || '').trim().toUpperCase();
+    if (candidatePlanId) {
+      const plan = await getPlan(candidatePlanId);
+      const serviceType = plan?.serviceType || plan?.id || '';
+      if (serviceType) {
+        (basePayload as any).serviceType = serviceType;
+      }
+    }
+  } catch (err) {
+    // best-effort only
+  }
 
   const now = new Date();
 

@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import Link from 'next/link';
 import { useAuthContext } from '@/components/auth/AuthProvider';
@@ -21,6 +21,7 @@ type UserDoc = {
   serviceType?: string;
   paymentType?: string;
   planName?: string;
+  planId?: string;
 };
 
 type MeResponse = {
@@ -277,28 +278,35 @@ export default function PerfilPage() {
       address: beneficiary.address,
       city: beneficiary.city,
       state: beneficiary.state,
-      paymentType: beneficiary.paymentType || '',
+      paymentType: 'S',
     });
   }, [beneficiary]);
 
-  useEffect(() => {
-    const currentServiceType = (beneficiary?.serviceType || doc?.serviceType || '').trim();
-    if (!currentServiceType) return;
+    useEffect(() => {
+    // Preferir correspondência por nome do plano salvo no Firebase
+    const nameFromDoc = (doc?.planName || '').trim().toLowerCase();
+    const planIdFromDoc = (doc?.planId || '').trim().toUpperCase();
+    const stFromDoc = (doc?.serviceType || '').trim().toUpperCase();
+    const stFromRapidoc = (beneficiary?.serviceType || '').trim().toUpperCase();
 
     setSelectedPlanId((prev) => {
       if (prev) return prev;
-      const match = plans.find((option) => {
-        const normalizedId = option.id.trim().toUpperCase();
-        const normalizedServiceType = (option.serviceType || option.id).trim().toUpperCase();
-        const target = currentServiceType.toUpperCase();
-        return normalizedId === target || normalizedServiceType === target;
-      });
-      if (match) {
-        return match.id;
+      if (nameFromDoc) {
+        const byName = plans.find((p) => p.name.trim().toLowerCase() === nameFromDoc);
+        if (byName) return byName.id;
       }
-      return currentServiceType.toUpperCase();
+      const candidate = planIdFromDoc || stFromDoc || stFromRapidoc;
+      if (candidate) {
+        const byIdOrSt =
+          plans.find((p) => p.id.trim().toUpperCase() === candidate) ||
+          plans.find((p) => (p.serviceType || p.id).trim().toUpperCase() === candidate) ||
+          null;
+        if (byIdOrSt) return byIdOrSt.id;
+        return candidate;
+      }
+      return '';
     });
-  }, [beneficiary?.serviceType, doc?.serviceType, plans]);
+  }, [beneficiary?.serviceType, doc?.serviceType, doc?.planId, doc?.planName, plans]);
 
   const beneficiaryUuid = useMemo(
     () => beneficiary?.uuid || beneficiary?.id || me?.user?.beneficiaryUuid || '',
@@ -363,7 +371,7 @@ export default function PerfilPage() {
         address: beneficiaryForm.address,
         city: beneficiaryForm.city,
         state: beneficiaryForm.state,
-        paymentType: beneficiaryForm.paymentType || undefined,
+        paymentType: "S",
         serviceType: (plan.serviceType || plan.id).trim().toUpperCase() || undefined,
       };
       const res = await fetch(`/api/rapidoc/beneficiaries/${beneficiaryUuid}`, {
@@ -396,7 +404,7 @@ export default function PerfilPage() {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           serviceType: (plan.serviceType || plan.id).trim().toUpperCase(),
-          paymentType: beneficiaryForm.paymentType,
+          paymentType: "S",
           planName: plan.name,
           planValue: plan.value,
         }),
@@ -566,7 +574,7 @@ export default function PerfilPage() {
             </div>
           </div>
 
-          <div className="space-y-3 rounded-2xl border border-white/70 bg-white/80 p-4">
+                              <div className="space-y-3 rounded-2xl border border-white/70 bg-white/80 p-4">
             <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">Atualizar cadastro sincronizado</p>
             <div className="grid gap-3">
               {(
@@ -589,53 +597,40 @@ export default function PerfilPage() {
                   />
                 </label>
               ))}
-              <div className="grid grid-cols-2 gap-3 text-xs font-semibold text-emerald-600">
-                <label className="space-y-1">
-                  <span className="block uppercase tracking-wide">Pagamento</span>
-                  <select
-                    className="select"
-                    value={beneficiaryForm.paymentType || ''}
-                    onChange={(e) => handleBeneficiaryChange('paymentType', e.target.value)}
-                  >
-                    <option value="">Selecione…</option>
-                    <option value="S">S (assinatura)</option>
-                    <option value="A">A (avulso)</option>
-                  </select>
-                </label>
-                <label className="space-y-1">
-                  <span className="block uppercase tracking-wide">Plano no prontuario</span>
-                  <select
-                    className="select"
-                    value={selectedPlan?.id || selectedPlanId}
-                    onChange={(e) => setSelectedPlanId(e.target.value)}
-                    disabled={!plans.length}
-                  >
-                    <option value="">Selecione…</option>
-                    {plans.map((plan) => (
-                      <option
-                        key={plan.documentId || plan.slug || `${plan.id}-${plan.name}`}
-                        value={plan.id}
-                      >
-                        {plan.name} • {formatCurrency(plan.value)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-              {selectedPlan && (
-                <p className="text-[11px] font-semibold text-emerald-700">
-                  Plano selecionado: {selectedPlan.name} ({(selectedPlan.serviceType || selectedPlan.id).toUpperCase()}) •{' '}
-                  {formatCurrency(selectedPlan.value)}
-                </p>
-              )}
             </div>
+            <div className="grid grid-cols-1 gap-3 text-xs font-semibold text-emerald-600">
+              <label className="space-y-1">
+                <span className="block uppercase tracking-wide">Plano no prontuario</span>
+                <select
+                  className="select"
+                  value={selectedPlan?.id || selectedPlanId}
+                  onChange={(e) => setSelectedPlanId(e.target.value)}
+                  disabled={!plans.length}
+                >
+                  <option value="">Selecione…</option>
+                  <option value="">Selecione…</option>
+                  
+                    <option
+                      key={plan.documentId || plan.slug || `${plan.id}-${plan.name}`}
+                      value={plan.id}
+                    >
+                      {plan.name} - {formatCurrency(plan.value)}
+                    </option>
+                  ))}
+                </select>
+            </div>
+            {selectedPlan && (
+              <p className="text-[11px] font-semibold text-emerald-700">
+                Plano selecionado: {selectedPlan.name} ({(selectedPlan.serviceType || selectedPlan.id).toUpperCase()}) – {formatCurrency(selectedPlan.value)}
+              </p>
+            )}
             <div className="flex flex-wrap gap-2">
               <button
                 onClick={savePlan}
                 disabled={planSubmitting || loadingBeneficiary}
                 className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-60"
               >
-                {planSubmitting ? 'Salvando…' : 'Salvar alterações do prontuario'}
+                {planSubmitting ? 'Salvando…' : 'Salvar alterações do prontuário'}
               </button>
               <Link
                 href="/assinante/perfil/cancelar"
@@ -644,10 +639,7 @@ export default function PerfilPage() {
                 Solicitar cancelamento do plano
               </Link>
             </div>
-          </div>
-        </div>
-
-        <div className="mt-6">
+          </div><div className="mt-6">
           <p className="text-sm font-semibold text-emerald-700">Sugestões de planos</p>
           {loadingPlans && <p className="text-sm text-zinc-500">Carregando planos…</p>}
           {plansError && <p className="text-sm text-red-600">{plansError}</p>}
@@ -681,3 +673,10 @@ export default function PerfilPage() {
     </div>
   );
 }
+
+
+
+
+
+
+

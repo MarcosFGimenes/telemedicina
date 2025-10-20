@@ -2,6 +2,7 @@
 
 import AuthGuard from '@/components/auth/AuthGuard';
 import { useAuthContext } from '@/components/auth/AuthProvider';
+import LogoutButton from '@/components/auth/LogoutButton';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
@@ -136,8 +137,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </aside>
         <section className="space-y-6">
           <header className="rounded-3xl border border-white/70 bg-white/90 p-6 shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">{meta.description}</p>
-            <h1 className="mt-2 text-3xl font-semibold text-zinc-900">{meta.title}</h1>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-600">{meta.description}</p>
+                <h1 className="mt-2 text-3xl font-semibold text-zinc-900">{meta.title}</h1>
+              </div>
+              <LogoutButton compact />
+            </div>
           </header>
           <div className="space-y-6">{children}</div>
         </section>

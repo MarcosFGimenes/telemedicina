@@ -2,6 +2,7 @@
 
 import AuthGuard from '@/components/auth/AuthGuard';
 import { useAuthContext } from '@/components/auth/AuthProvider';
+import LogoutButton from '@/components/auth/LogoutButton';
 import clsx from 'clsx';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -166,6 +167,10 @@ export default function AssinanteLayout({ children }: { children: React.ReactNod
               })}
             </nav>
 
+            <div className="hidden lg:block">
+              <LogoutButton compact />
+            </div>
+
             <button
               type="button"
               className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-emerald-100 text-emerald-700 transition hover:border-emerald-200 hover:bg-emerald-50 lg:hidden"
@@ -213,6 +218,9 @@ export default function AssinanteLayout({ children }: { children: React.ReactNod
                   </Link>
                 );
               })}
+              <div className="pt-2">
+                <LogoutButton compact />
+              </div>
             </div>
           )}
         </header>
