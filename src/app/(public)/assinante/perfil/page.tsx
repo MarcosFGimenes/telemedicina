@@ -51,6 +51,26 @@ type Beneficiary = {
 
 type PlanOption = PlanDefinition;
 
+const normalizeIdentifier = (value?: string) => value?.trim().toLowerCase() || '';
+
+const getPlanIdentifiers = (plan: PlanOption) =>
+  [plan.documentId, plan.slug, plan.id, plan.serviceType]
+    .map((identifier) => identifier?.trim())
+    .filter(Boolean) as string[];
+
+const matchesPlanIdentifier = (plan: PlanOption, identifier: string) => {
+  const normalizedIdentifier = normalizeIdentifier(identifier);
+  if (!normalizedIdentifier) {
+    return false;
+  }
+  return getPlanIdentifiers(plan).some(
+    (value) => normalizeIdentifier(value) === normalizedIdentifier,
+  );
+};
+
+const getPlanPrimaryIdentifier = (plan: PlanOption) =>
+  plan.documentId || plan.slug || plan.id || plan.serviceType || '';
+
 type BeneficiaryForm = {
   name?: string;
   email?: string;
@@ -99,7 +119,7 @@ export default function PerfilPage() {
   const [planFeedback, setPlanFeedback] = useState('');
   const [planError, setPlanError] = useState('');
   const [planSubmitting, setPlanSubmitting] = useState(false);
-  const [selectedPlanId, setSelectedPlanId] = useState('');
+  const [selectedPlanKey, setSelectedPlanKey] = useState('');
 
   useEffect(() => {
     if (!token) return;
@@ -282,28 +302,29 @@ export default function PerfilPage() {
     });
   }, [beneficiary]);
 
-    useEffect(() => {
+  useEffect(() => {
     // Preferir correspondência por nome do plano salvo no Firebase
     const nameFromDoc = (doc?.planName || '').trim().toLowerCase();
-    const planIdFromDoc = (doc?.planId || '').trim().toUpperCase();
-    const stFromDoc = (doc?.serviceType || '').trim().toUpperCase();
-    const stFromRapidoc = (beneficiary?.serviceType || '').trim().toUpperCase();
+    const planIdFromDoc = (doc?.planId || '').trim();
+    const stFromDoc = (doc?.serviceType || '').trim();
+    const stFromRapidoc = (beneficiary?.serviceType || '').trim();
 
-    setSelectedPlanId((prev) => {
+    setSelectedPlanKey((prev) => {
       if (prev) return prev;
       if (nameFromDoc) {
         const byName = plans.find((p) => p.name.trim().toLowerCase() === nameFromDoc);
-        if (byName) return byName.id;
+        if (byName) return getPlanPrimaryIdentifier(byName);
       }
-      const candidate = planIdFromDoc || stFromDoc || stFromRapidoc;
-      if (candidate) {
-        const byIdOrSt =
-          plans.find((p) => p.id.trim().toUpperCase() === candidate) ||
-          plans.find((p) => (p.serviceType || p.id).trim().toUpperCase() === candidate) ||
-          null;
-        if (byIdOrSt) return byIdOrSt.id;
-        return candidate;
+
+      const candidates = [planIdFromDoc, stFromDoc, stFromRapidoc];
+      for (const candidate of candidates) {
+        if (!candidate) continue;
+        const match = plans.find((plan) => matchesPlanIdentifier(plan, candidate));
+        if (match) {
+          return getPlanPrimaryIdentifier(match);
+        }
       }
+
       return '';
     });
   }, [beneficiary?.serviceType, doc?.serviceType, doc?.planId, doc?.planName, plans]);
@@ -318,14 +339,9 @@ export default function PerfilPage() {
   }, [beneficiary?.specialties]);
 
   const selectedPlan = useMemo(() => {
-    if (!selectedPlanId) return null;
-    const normalized = selectedPlanId.trim().toUpperCase();
-    return (
-      plans.find((option) => option.id.trim().toUpperCase() === normalized) ||
-      plans.find((option) => (option.serviceType || option.id).trim().toUpperCase() === normalized) ||
-      null
-    );
-  }, [plans, selectedPlanId]);
+    if (!selectedPlanKey) return null;
+    return plans.find((option) => matchesPlanIdentifier(option, selectedPlanKey)) || null;
+  }, [plans, selectedPlanKey]);
 
   const handleBeneficiaryChange = (key: keyof BeneficiaryForm, value: string) => {
     setBeneficiaryForm((prev) => ({ ...prev, [key]: value }));
@@ -337,22 +353,47 @@ export default function PerfilPage() {
       return;
     }
 
-    if (!selectedPlanId) {
+    if (!selectedPlanKey) {
       setPlanError('Selecione o plano desejado antes de salvar.');
       return;
     }
 
-    const normalizedSelectedId = selectedPlanId.trim().toUpperCase();
     const plan =
-      selectedPlan ||
-      plans.find((option) => option.id.trim().toUpperCase() === normalizedSelectedId) ||
-      plans.find((option) => (option.serviceType || option.id).trim().toUpperCase() === normalizedSelectedId) ||
-      null;
+      selectedPlan || plans.find((option) => matchesPlanIdentifier(option, selectedPlanKey)) || null;
 
     if (!plan) {
       setPlanError('Plano selecionado não encontrado. Escolha uma opção válida.');
       return;
     }
+
+    let firestorePlan: PlanDefinition | null = null;
+    try {
+      const identifierForFetch = getPlanPrimaryIdentifier(plan);
+      if (!identifierForFetch.trim()) {
+        throw new Error('Plano selecionado está sem identificador único.');
+      }
+      const res = await fetch(`/api/plans/${encodeURIComponent(identifierForFetch)}`);
+      if (!res.ok) {
+        throw new Error('Plano selecionado não encontrado na base de planos.');
+      }
+      firestorePlan = (await res.json()) as PlanDefinition;
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Não foi possível carregar dados do plano selecionado.';
+      setPlanError(message);
+      return;
+    }
+
+    // Exemplo usando o SDK do Firestore:
+    // const selectedPlanDoc = await getDoc(doc(db, 'plans', selectedPlanKey));
+    // const serviceTypeFromFirestore = selectedPlanDoc.data()?.serviceType;
+
+    const resolvedServiceType = (firestorePlan.serviceType || plan.serviceType || plan.id || '')
+      .trim()
+      .toUpperCase();
+    const resolvedPaymentType = (beneficiaryForm.paymentType || 'S') as 'S' | 'A';
 
     if (!token) {
       setPlanError('Sessão expirada. Faça login novamente para alterar o plano.');
@@ -363,6 +404,7 @@ export default function PerfilPage() {
       setPlanSubmitting(true);
       setPlanError('');
       setPlanFeedback('');
+      // A chamada à Rapidoc usa sempre o serviceType oficial do Firestore e a forma de pagamento escolhida na UI.
       const payload = {
         name: beneficiaryForm.name,
         email: beneficiaryForm.email,
@@ -371,8 +413,8 @@ export default function PerfilPage() {
         address: beneficiaryForm.address,
         city: beneficiaryForm.city,
         state: beneficiaryForm.state,
-        paymentType: "S",
-        serviceType: (plan.serviceType || plan.id).trim().toUpperCase() || undefined,
+        paymentType: resolvedPaymentType,
+        serviceType: resolvedServiceType || undefined,
       };
       const res = await fetch(`/api/rapidoc/beneficiaries/${beneficiaryUuid}`, {
         method: 'PUT',
@@ -403,8 +445,8 @@ export default function PerfilPage() {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
-          serviceType: (plan.serviceType || plan.id).trim().toUpperCase(),
-          paymentType: "S",
+          serviceType: resolvedServiceType,
+          paymentType: resolvedPaymentType,
           planName: plan.name,
           planValue: plan.value,
         }),
@@ -603,17 +645,20 @@ export default function PerfilPage() {
                 <span className="block uppercase tracking-wide">Plano no prontuario</span>
                 <select
                   className="select"
-                  value={selectedPlan?.id || selectedPlanId}
-                  onChange={(e) => setSelectedPlanId(e.target.value)}
+                  value={selectedPlanKey}
+                  onChange={(e) => {
+                    // Guardamos o identificador único (documentId ou slug) para que a seleção seja exclusiva.
+                    setSelectedPlanKey(e.target.value);
+                  }}
                   disabled={!plans.length}
                 >
                   <option value="">Selecione…</option>
                   <option value="">Selecione…</option>
-                  
+
                   {plans.map((plan) => (
                     <option
                       key={plan.documentId || plan.slug || `${plan.id}-${plan.name}`}
-                      value={plan.id}
+                      value={getPlanPrimaryIdentifier(plan)}
                     >
                       {plan.name} - {formatCurrency(plan.value)}
                     </option>
@@ -655,10 +700,11 @@ export default function PerfilPage() {
                 <button
                   key={option.documentId || option.slug || `${option.id}-${option.name}`}
                   onClick={() => {
-                    setSelectedPlanId(option.id);
+                    // O botão também persiste o identificador único para manter a seleção sincronizada.
+                    setSelectedPlanKey(getPlanPrimaryIdentifier(option));
                   }}
                   className={`rounded-2xl border p-3 text-left text-sm transition hover:border-emerald-200 hover:bg-emerald-50/70 ${
-                    (selectedPlan?.id || selectedPlanId)?.toUpperCase() === option.id.toUpperCase()
+                    matchesPlanIdentifier(option, selectedPlanKey)
                       ? 'border-emerald-300 bg-emerald-50/80 text-emerald-800'
                       : 'border-white/80 bg-white/80 text-zinc-700'
                   }`}
