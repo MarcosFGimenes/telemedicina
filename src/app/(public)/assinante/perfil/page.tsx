@@ -610,6 +610,7 @@ export default function PerfilPage() {
                   <option value="">Selecione…</option>
                   <option value="">Selecione…</option>
                   
+                  {plans.map((plan) => (
                     <option
                       key={plan.documentId || plan.slug || `${plan.id}-${plan.name}`}
                       value={plan.id}
@@ -618,6 +619,7 @@ export default function PerfilPage() {
                     </option>
                   ))}
                 </select>
+              </label>
             </div>
             {selectedPlan && (
               <p className="text-[11px] font-semibold text-emerald-700">
@@ -639,7 +641,8 @@ export default function PerfilPage() {
                 Solicitar cancelamento do plano
               </Link>
             </div>
-          </div><div className="mt-6">
+          </div>
+          <div className="mt-6">
           <p className="text-sm font-semibold text-emerald-700">Sugestões de planos</p>
           {loadingPlans && <p className="text-sm text-zinc-500">Carregando planos…</p>}
           {plansError && <p className="text-sm text-red-600">{plansError}</p>}
@@ -668,6 +671,7 @@ export default function PerfilPage() {
               ))}
             </div>
           )}
+        </div>
         </div>
       </section>
     </div>
