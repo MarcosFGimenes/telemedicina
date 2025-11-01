@@ -341,7 +341,6 @@ export default function CheckoutExperience({
     address: 'Endereco',
     city: 'Cidade',
     state: 'UF',
-    holder: 'CPF do titular responsavel',
     general: 'Observacoes'
   };
 
@@ -548,7 +547,40 @@ export default function CheckoutExperience({
     try {
       setErr('');
       setResp(null);
-      const payload = [form];
+      
+      // Montar payload no formato novo com plans
+      const beneficiaryPayload: Record<string, unknown> = {
+        name: form.name,
+        cpf: form.cpf,
+        birthday: form.birthday,
+      };
+      
+      if (form.phone) beneficiaryPayload.phone = form.phone;
+      if (form.email) beneficiaryPayload.email = form.email;
+      if (form.zipCode) beneficiaryPayload.zipCode = form.zipCode;
+      if (form.address) beneficiaryPayload.address = form.address;
+      if (form.city) beneficiaryPayload.city = form.city;
+      if (form.state) beneficiaryPayload.state = form.state;
+      
+      // Usar plans se tiver rapidocUuid no plano
+      if (selectedPlan?.rapidocUuid) {
+        beneficiaryPayload.plans = [
+          {
+            paymentType: form.paymentType || 'S',
+            plan: {
+              uuid: selectedPlan.rapidocUuid,
+            },
+          },
+        ];
+      } else {
+        // Fallback para formato antigo
+        if (form.paymentType) beneficiaryPayload.paymentType = form.paymentType;
+        if (form.serviceType) beneficiaryPayload.serviceType = form.serviceType;
+        if (form.holder) beneficiaryPayload.holder = form.holder;
+        if (form.general) beneficiaryPayload.general = form.general;
+      }
+      
+      const payload = [beneficiaryPayload];
       const { data } = await axios.post('/api/rapidoc/beneficiaries', payload);
       setResp(data);
       beneficiaryCreatedRef.current = true;
@@ -792,7 +824,6 @@ export default function CheckoutExperience({
                 'address',
                 'city',
                 'state',
-                'holder',
                 'general',
               ] as (keyof BeneficiaryForm)[]).map((key) => {
                 const label = fieldLabels[key] || key;

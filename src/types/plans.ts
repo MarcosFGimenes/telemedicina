@@ -15,6 +15,10 @@ export type PlanDefinition = {
    * Código informado para a Rapidoc. Mantemos separado para compatibilidade com cadastros antigos.
    */
   serviceType: string;
+  /**
+   * UUID do plano na Rapidoc (novo formato)
+   */
+  rapidocUuid?: string;
   name: string;
   description: string;
   value: number;
@@ -33,6 +37,7 @@ export type PlanPayload = {
   value: number;
   maxDependents?: number;
   slug?: string;
+  rapidocUuid?: string;
 };
 
 export type PlanUpdatePayload = {
@@ -41,4 +46,5 @@ export type PlanUpdatePayload = {
   value?: number;
   maxDependents?: number;
   slug?: string;
+  rapidocUuid?: string;
 };

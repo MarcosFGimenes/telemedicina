@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { slugify } from '@/lib/slug';
 import type { PlanDefinition } from '@/types/plans';
+import type { RapidocPlan } from '@/lib/rapidocService';
 
 const emptyForm = {
   id: '',
@@ -11,6 +12,7 @@ const emptyForm = {
   value: '',
   maxDependents: '',
   slug: '',
+  rapidocUuid: '',
 };
 
 type FormState = typeof emptyForm;
@@ -33,6 +35,8 @@ const extractErrorMessage = (payload: unknown, fallback: string) => {
 
 export default function AdminPlansPage() {
   const [plans, setPlans] = useState<PlanDefinition[]>([]);
+  const [rapidocPlans, setRapidocPlans] = useState<RapidocPlan[]>([]);
+  const [rapidocPlansLoading, setRapidocPlansLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -59,9 +63,27 @@ export default function AdminPlansPage() {
     }
   }, []);
 
+  const loadRapidocPlans = useCallback(async () => {
+    try {
+      setRapidocPlansLoading(true);
+      const res = await fetch('/api/rapidoc/planos');
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(extractErrorMessage(data, 'Falha ao carregar planos da Rapidoc.'));
+      }
+      setRapidocPlans(Array.isArray(data) ? (data as RapidocPlan[]) : []);
+    } catch (error: unknown) {
+      setRapidocPlans([]);
+      // Não exibir erro, apenas deixar vazio
+    } finally {
+      setRapidocPlansLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     loadPlans();
-  }, [loadPlans]);
+    loadRapidocPlans();
+  }, [loadPlans, loadRapidocPlans]);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -108,6 +130,7 @@ export default function AdminPlansPage() {
       description: form.description.trim(),
       value: Number(form.value.replace(',', '.')),
       maxDependents: Number(form.maxDependents || '0'),
+      rapidocUuid: form.rapidocUuid?.trim() || undefined,
     };
 
     if (!payload.id) {
@@ -167,6 +190,7 @@ export default function AdminPlansPage() {
       value: String(plan.value.toFixed(2)),
       maxDependents: String(plan.maxDependents ?? ''),
       slug: plan.slug,
+      rapidocUuid: plan.rapidocUuid || '',
     });
     setSuccess('');
     setError('');
@@ -282,7 +306,79 @@ export default function AdminPlansPage() {
             </p>
           </div>
 
-          <div className="flex items-end gap-3">
+          <div className="space-y-2 md:col-span-2">
+            <label className="text-sm font-medium text-zinc-700">Plano na Rapidoc (opcional)</label>
+            {rapidocPlansLoading && (
+              <p className="text-xs text-zinc-500">Carregando planos da Rapidoc...</p>
+            )}
+            {!rapidocPlansLoading && rapidocPlans.length === 0 && (
+              <p className="text-xs text-amber-600">
+                Nenhum plano disponível na Rapidoc. Você pode informar o UUID manualmente.
+              </p>
+            )}
+            {!rapidocPlansLoading && rapidocPlans.length > 0 && (
+              <div className="space-y-3">
+                <select
+                  className="w-full rounded-lg border border-zinc-200 px-3 py-2 bg-white"
+                  value={form.rapidocUuid}
+                  onChange={(event) => handleChange('rapidocUuid', event.target.value)}
+                >
+                  <option value="">Selecione um plano da Rapidoc...</option>
+                  {rapidocPlans.map((plan) => (
+                    <option key={plan.uuid} value={plan.uuid}>
+                      {plan.name} - {plan.description}
+                    </option>
+                  ))}
+                </select>
+                {form.rapidocUuid && (
+                  <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-4">
+                    {(() => {
+                      const selectedPlan = rapidocPlans.find((p) => p.uuid === form.rapidocUuid);
+                      if (!selectedPlan) return null;
+                      return (
+                        <div className="space-y-3">
+                          <div>
+                            <p className="text-sm font-semibold text-emerald-900">{selectedPlan.name}</p>
+                            <p className="text-xs text-emerald-700">{selectedPlan.description}</p>
+                            <p className="mt-1 text-xs font-mono text-emerald-600">UUID: {selectedPlan.uuid}</p>
+                          </div>
+                          {selectedPlan.specialties && selectedPlan.specialties.length > 0 && (
+                            <div className="border-t border-emerald-200 pt-3">
+                              <p className="mb-2 text-xs font-semibold text-emerald-900">
+                                Especialidades incluídas ({selectedPlan.specialties.length}):
+                              </p>
+                              <div className="flex flex-wrap gap-2">
+                                {selectedPlan.specialties.map((spec) => (
+                                  <span
+                                    key={spec.uuid}
+                                    className="inline-flex items-center rounded-full border border-emerald-300 bg-white px-2.5 py-0.5 text-xs font-medium text-emerald-700 shadow-sm"
+                                  >
+                                    {spec.name}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+              </div>
+            )}
+            <input
+              className="mt-2 w-full rounded-lg border border-zinc-200 px-3 py-2 font-mono text-xs"
+              value={form.rapidocUuid}
+              onChange={(event) => handleChange('rapidocUuid', event.target.value)}
+              placeholder="Ou digite o UUID manualmente: 6676fb40-4b2f-4434-bd9c-ba6f38925c44"
+              type="text"
+            />
+            <p className="text-xs text-zinc-500">
+              UUID do plano retornado pelo endpoint /tema/api/plans da Rapidoc. Necessário para o novo formato de beneficiários.
+            </p>
+          </div>
+
+          <div className="flex items-end gap-3 md:col-span-2">
             <button
               type="submit"
               disabled={submitting}
