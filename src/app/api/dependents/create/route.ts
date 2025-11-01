@@ -81,6 +81,9 @@ export async function POST(req: NextRequest) {
     }
 
     // Create beneficiary in Rapidoc (ensure or resolve)
+    const userCpf = String(userData?.cpf || '').replace(/\D/g, '');
+    const userServiceType = String(userData?.serviceType || '').trim().toUpperCase();
+    
     const payload: RapidocBeneficiaryPayload = {
       name,
       cpf,
@@ -91,10 +94,11 @@ export async function POST(req: NextRequest) {
       address: body?.address,
       city: body?.city,
       state: body?.state,
-      paymentType: body?.paymentType,
-      serviceType: body?.serviceType,
-      holder: body?.holder,
-      general: body?.general,
+      paymentType: (body?.paymentType || userData?.paymentType || 'S') as 'S' | 'A',
+      // Por enquanto mantemos serviceType para compatibilidade; a nova API usa plans
+      serviceType: (body?.serviceType || userServiceType || 'GS') as any,
+      holder: body?.holder || userCpf || undefined,
+      general: body?.general || undefined,
     };
 
     const ensured = await rapidocCreateOrResolveUuid(payload);

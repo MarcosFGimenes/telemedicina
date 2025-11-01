@@ -11,6 +11,7 @@ import {
   deactivateBeneficiary,
   ensureBeneficiaryByCPF,
   reactivateBeneficiary,
+  type RapidocPlanItem,
 } from '@/lib/rapidocService';
 
 const THREE_DAYS_IN_MS = 3 * 24 * 60 * 60 * 1000;
@@ -151,7 +152,23 @@ export async function POST(req: NextRequest) {
       const plan = await getPlan(candidatePlanId);
       const serviceType = plan?.serviceType || plan?.id || '';
       if (serviceType) {
-        (basePayload as any).serviceType = serviceType;
+        // Se tiver rapidocUuid, usar novo formato com plans
+        if (plan?.rapidocUuid) {
+          (basePayload as any).plans = [
+            {
+              paymentType: (basePayload.paymentType as 'S' | 'A') || 'S',
+              plan: {
+                uuid: plan.rapidocUuid,
+              },
+            },
+          ];
+          // Remove serviceType deprecated
+          delete (basePayload as any).serviceType;
+          delete (basePayload as any).paymentType;
+        } else {
+          // Fallback para formato antigo
+          (basePayload as any).serviceType = serviceType;
+        }
       }
     }
   } catch (err) {

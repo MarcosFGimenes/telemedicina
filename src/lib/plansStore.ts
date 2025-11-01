@@ -67,11 +67,14 @@ const normalizePlanDoc = (doc: QueryDocumentSnapshot | DocumentSnapshot): PlanDe
     doc.id,
   ) || `plano-${fallbackSlug}`;
 
+  const rapidocUuid = typeof data.rapidocUuid === 'string' ? data.rapidocUuid.trim() : undefined;
+
   return {
     documentId: doc.id,
     slug,
     id: id || serviceType,
     serviceType: serviceType || id,
+    rapidocUuid: rapidocUuid || undefined,
     name,
     description,
     value,
@@ -285,6 +288,7 @@ export async function createPlan(payload: PlanPayload): Promise<PlanDefinition> 
     description: payload.description?.trim() || '',
     value,
     maxDependents,
+    rapidocUuid: payload.rapidocUuid?.trim() || undefined,
     createdAt: now,
     updatedAt: now,
   };
@@ -336,6 +340,8 @@ export async function updatePlan(id: string, payload: PlanUpdatePayload): Promis
 
   const updatedAt = new Date().toISOString();
 
+  const rapidocUuid = payload.rapidocUuid !== undefined ? (payload.rapidocUuid?.trim() || undefined) : undefined;
+
   if (!willRenameDocument) {
     await doc.ref.update({
       name,
@@ -344,6 +350,7 @@ export async function updatePlan(id: string, payload: PlanUpdatePayload): Promis
       maxDependents,
       slug,
       updatedAt,
+      ...(rapidocUuid !== undefined && { rapidocUuid }),
     });
 
     const refreshed = await doc.ref.get();
@@ -369,6 +376,7 @@ export async function updatePlan(id: string, payload: PlanUpdatePayload): Promis
     maxDependents,
     createdAt: baseData.createdAt ?? current.createdAt,
     updatedAt,
+    ...(rapidocUuid !== undefined && { rapidocUuid }),
   });
 
   await doc.ref.delete();

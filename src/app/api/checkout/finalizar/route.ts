@@ -9,6 +9,7 @@ import {
   rapidocCreateOrResolveUuid,
   sanitizeCPF,
   type RapidocBeneficiaryPayload,
+  type RapidocPlanItem,
 } from '@/lib/rapidocService';
 import {
   type AsaasPayment,
@@ -259,7 +260,23 @@ export async function POST(request: NextRequest) {
       const plan = await getPlan(candidatePlanId);
       const serviceType = plan?.serviceType || plan?.id || '';
       if (serviceType) {
-        ensurePayload.serviceType = serviceType as any;
+        // Se tiver rapidocUuid, usar novo formato com plans
+        if (plan?.rapidocUuid) {
+          ensurePayload.plans = [
+            {
+              paymentType: (ensurePayload.paymentType as 'S' | 'A') || 'S',
+              plan: {
+                uuid: plan.rapidocUuid,
+              },
+            },
+          ];
+          // Remove serviceType deprecated
+          delete (ensurePayload as any).serviceType;
+          delete (ensurePayload as any).paymentType;
+        } else {
+          // Fallback para formato antigo
+          ensurePayload.serviceType = serviceType as any;
+        }
       }
     }
   } catch (err) {

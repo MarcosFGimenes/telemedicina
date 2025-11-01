@@ -11,21 +11,50 @@ if (!RAPIDOC_BASE_URL) {
 const rapidoc = axios.create({
   baseURL: RAPIDOC_BASE_URL,
   timeout: 30000,
+  headers: {
+    Accept: 'application/vnd.rapidoc.tema-v2+json',
+    'Content-Type': 'application/vnd.rapidoc.tema-v2+json',
+  },
 });
 
-rapidoc.defaults.headers.common.Accept = 'application/json';
 if (RAPIDOC_TOKEN) {
   rapidoc.defaults.headers.common.Authorization = `Bearer ${RAPIDOC_TOKEN}`;
 }
 if (RAPIDOC_CLIENT_ID) {
   rapidoc.defaults.headers.common.clientId = RAPIDOC_CLIENT_ID;
 }
-rapidoc.defaults.headers.post['Content-Type'] = 'application/vnd.rapidoc.tema-v2+json';
-rapidoc.defaults.headers.put['Content-Type'] = 'application/vnd.rapidoc.tema-v2+json';
-rapidoc.defaults.headers.patch['Content-Type'] = 'application/vnd.rapidoc.tema-v2+json';
 
 export const onlyDigits = (s?: string | null) => (s ?? '').replace(/\D/g, '');
 export const sanitizeCPF = (cpf: string) => onlyDigits(cpf);
+
+export type RapidocSpecialty = {
+  name: string;
+  uuid: string;
+};
+
+export type RapidocPlanDetails = {
+  uuid: string;
+  name: string;
+  description: string;
+  serviceType: string;
+  specialties: RapidocSpecialty[];
+  isActive?: boolean; // Opcional, pode vir da API
+};
+
+export type RapidocPlanResponse = {
+  paymentType: 'S' | 'A' | string;
+  plan: RapidocPlanDetails;
+};
+
+// Type alias para compatibilidade
+export type RapidocPlan = RapidocPlanDetails;
+
+export type RapidocPlanItem = {
+  paymentType: 'S' | 'A';
+  plan: {
+    uuid: string;
+  };
+};
 
 export type RapidocBeneficiaryPayload = {
   name: string;
@@ -37,6 +66,8 @@ export type RapidocBeneficiaryPayload = {
   address?: string;
   city?: string;
   state?: string;
+  plans?: RapidocPlanItem[];
+  // Deprecated: usar plans em vez de serviceType
   paymentType?: 'S' | 'A';
   serviceType?: 'G' | 'P' | 'GP' | 'GS' | 'GSP';
   holder?: string;
@@ -159,8 +190,8 @@ export async function rapidocFindByCpf(cpf: string): Promise<RapidocRecord | nul
 
 export async function rapidocListBeneficiaries(params?: Record<string, string | number | undefined>) {
   const query = params ?? {};
-  // Endpoint Rapidoc: GET /beneficiaries
-  const { data } = await rapidoc.get('/beneficiaries', { params: query });
+  // Endpoint Rapidoc: GET /tema/api/beneficiaries
+  const { data } = await rapidoc.get('/tema/api/beneficiaries', { params: query });
   if (isExplicitNotFound(data)) {
     return [];
   }
@@ -175,21 +206,67 @@ export async function rapidocListBeneficiaries(params?: Record<string, string | 
   return extractList(data);
 }
 
+export async function rapidocListPlans(): Promise<RapidocRecord[]> {
+  // Endpoint Rapidoc: GET /tema/api/plans
+  const { data } = await rapidoc.get('/tema/api/plans');
+  if (isExplicitNotFound(data)) {
+    return [];
+  }
+  if (isRecord(data) && data.success === false) {
+    const message = readMessage(data) || 'Rapidoc plans query failed';
+    const error = new Error(message);
+    (error as RapidocHintedError).hint = 'rapidoc-plans-failed';
+    (error as RapidocHintedError).status = 502;
+    (error as RapidocHintedError).upstream = data;
+    throw error;
+  }
+  return extractList(data);
+}
+
+export async function rapidocListPlansDetails(): Promise<RapidocPlanDetails[]> {
+  // Endpoint Rapidoc: GET /tema/api/plans
+  // Retorna apenas os detalhes dos planos (sem paymentType)
+  const { data } = await rapidoc.get<RapidocPlanResponse[]>('/tema/api/plans');
+  if (Array.isArray(data)) {
+    return data.map((item) => item.plan).filter(Boolean);
+  }
+  if (isRecord(data) && data.success === false) {
+    return [];
+  }
+  return [];
+}
+
 export type RapidocPostResult = { uuid?: string; raw: unknown; error?: unknown };
 
 export async function rapidocPostBeneficiary(one: RapidocBeneficiaryPayload): Promise<RapidocPostResult> {
-  const body = [
-    {
-      ...one,
-      cpf: onlyDigits(one.cpf),
-      phone: one.phone ? onlyDigits(one.phone) : undefined,
-      zipCode: one.zipCode ? onlyDigits(one.zipCode) : undefined,
-      holder: one.holder ? onlyDigits(one.holder) : undefined,
-    },
-  ];
+  // Preparar o payload, removendo campos deprecated se usar plans
+  const payload: Record<string, unknown> = {
+    name: one.name,
+    cpf: onlyDigits(one.cpf),
+    birthday: one.birthday,
+  };
+  
+  if (one.phone) payload.phone = onlyDigits(one.phone);
+  if (one.email) payload.email = one.email;
+  if (one.zipCode) payload.zipCode = onlyDigits(one.zipCode);
+  if (one.address) payload.address = one.address;
+  if (one.city) payload.city = one.city;
+  if (one.state) payload.state = one.state;
+  if (one.holder) payload.holder = onlyDigits(one.holder);
+  if (one.general) payload.general = one.general;
+  
+  // Se plans estiver presente, usar apenas plans; senão, usar serviceType/paymentType
+  if (one.plans && Array.isArray(one.plans) && one.plans.length > 0) {
+    payload.plans = one.plans;
+  } else {
+    if (one.paymentType) payload.paymentType = one.paymentType;
+    if (one.serviceType) payload.serviceType = one.serviceType;
+  }
+
+  const body = [payload];
 
   try {
-    const { data } = await rapidoc.post('/beneficiaries', body);
+    const { data } = await rapidoc.post('/tema/api/beneficiaries', body);
     return { uuid: undefined, raw: data };
   } catch (error) {
     if (axios.isAxiosError(error) && error.response) {

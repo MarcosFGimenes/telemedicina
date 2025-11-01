@@ -50,6 +50,7 @@ type Beneficiary = {
   serviceType?: string;
   paymentType?: string;
   specialties?: { uuid?: string; name?: string }[];
+  plans?: Array<{ specialties?: { uuid?: string; name?: string }[] }>;
 };
 
 const formatCurrency = (value?: number) => {
@@ -409,10 +410,32 @@ export default function AssinanteDashboard() {
   const planPaymentType = beneficiary?.paymentType || data.me?.user?.paymentType || '—';
 
   const planSpecialties = useMemo(() => {
-    return (beneficiary?.specialties || [])
-      .map((item) => item?.name)
-      .filter(Boolean) as string[];
-  }, [beneficiary?.specialties]);
+    // Primeiro tenta buscar specialties diretamente no beneficiário
+    if (beneficiary?.specialties && Array.isArray(beneficiary.specialties)) {
+      const directSpecialties = beneficiary.specialties
+        .map((item) => item?.name)
+        .filter(Boolean) as string[];
+      if (directSpecialties.length > 0) {
+        return directSpecialties;
+      }
+    }
+
+    // Se não encontrou, tenta buscar dentro do array plans (novo formato)
+    if (beneficiary?.plans && Array.isArray(beneficiary.plans)) {
+      for (const plan of beneficiary.plans) {
+        if (plan?.specialties && Array.isArray(plan.specialties)) {
+          const planSpecialties = plan.specialties
+            .map((item) => item?.name)
+            .filter(Boolean) as string[];
+          if (planSpecialties.length > 0) {
+            return planSpecialties;
+          }
+        }
+      }
+    }
+
+    return [];
+  }, [beneficiary?.specialties, beneficiary?.plans]);
 
   const dependents = data.dependents;
 

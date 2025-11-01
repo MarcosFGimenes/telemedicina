@@ -120,13 +120,14 @@ rapidoc.interceptors.request.use((config) => {
   delete (existingHeaders as any).access_token;
   delete (existingHeaders as any)['access-token'];
   delete (existingHeaders as any).AccessToken;
-
-  const hasCustomContentType = Object.keys(existingHeaders).some(
-    (key) => key.toLowerCase() === 'content-type',
-  );
+  delete (existingHeaders as any).Accept;
+  delete (existingHeaders as any).accept;
+  delete (existingHeaders as any)['content-type'];
+  delete (existingHeaders as any).ContentType;
 
   const mergedHeaders: Record<string, string> = {
-    Accept: 'application/json',
+    Accept: 'application/vnd.rapidoc.tema-v2+json',
+    'Content-Type': 'application/vnd.rapidoc.tema-v2+json',
   };
 
   if (clientId) {
@@ -135,11 +136,6 @@ rapidoc.interceptors.request.use((config) => {
 
   if (token) {
     mergedHeaders.Authorization = `Bearer ${token}`;
-  }
-
-  // Always set Rapidoc content type unless caller provided one
-  if (!hasCustomContentType) {
-    mergedHeaders['Content-Type'] = 'application/vnd.rapidoc.tema-v2+json';
   }
 
   Object.entries(existingHeaders).forEach(([key, value]) => {
